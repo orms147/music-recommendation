@@ -5,9 +5,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 import gradio as gr
 import pandas as pd
+import numpy as np
+import pickle
 
 from config.config import (
-    RAW_DATA_DIR, PROCESSED_DATA_DIR,
+    RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR,  # Thêm MODELS_DIR vào đây
     DEFAULT_TRACKS_PER_QUERY, MAX_TRACKS_PER_QUERY, 
     MIN_TRACKS_PER_QUERY, TRACKS_QUERY_STEP,
     LARGE_DATASET_DEFAULT_SIZE, LARGE_DATASET_BATCH_SIZE, LARGE_DATASET_SAVE_INTERVAL
@@ -25,6 +27,23 @@ load_dotenv(dotenv_path=Path(__file__).parent / '.env')
 
 # Biến toàn cục cho model
 model = None
+
+def initialize_model():
+    """Khởi tạo model khi khởi động ứng dụng"""
+    global model
+    model_path = os.path.join(MODELS_DIR, 'metadata_recommender.pkl')
+    
+    if os.path.exists(model_path):
+        try:
+            model = MetadataRecommender.load(model_path)
+            logging.info(f"Đã nạp model từ {model_path}")
+            logging.info(f"Model được huấn luyện vào: {model.train_time}")
+            return True
+        except Exception as e:
+            logging.error(f"Lỗi khi nạp model: {e}")
+            return False
+    
+    return False
 
 def check_spotify_credentials():
     from config.config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
@@ -50,42 +69,59 @@ def setup_initial_dataset(progress=gr.Progress(), tracks_per_query=DEFAULT_TRACK
         return f"❌ Lỗi thiết lập dữ liệu: {e}"
 
 def train_model():
-    """Huấn luyện mô hình đề xuất dựa trên metadata"""
+    """Huấn luyện hoặc nạp lại mô hình đề xuất dựa trên metadata"""
     global model
     try:
-        processor = DataProcessor()
-        processor.load_data()
-        processor.clean_tracks_data()
-        processor.create_synthetic_audio_features()
-        processor.merge_artist_genres()
-        processor.extract_release_year()
-        processor.create_genre_features()
-        processor.create_language_features()
-        processor.create_additional_features()
-        processor.normalize_features()
-        tracks_df = processor.tracks_df
+        # Đường dẫn để lưu/nạp mô hình
+        model_path = os.path.join(MODELS_DIR, 'metadata_recommender.pkl')
+        
+        # Kiểm tra xem mô hình đã tồn tại chưa
+        if os.path.exists(model_path):
+            logging.info("Tìm thấy mô hình đã huấn luyện, đang nạp...")
+            model = MetadataRecommender.load(model_path)
+            logging.info(f"Đã nạp mô hình thành công (được huấn luyện vào: {model.train_time})")
+            return "Đã nạp mô hình thành công!"
+        
+        # Nếu không tìm thấy mô hình, huấn luyện mới
+        logging.info("Không tìm thấy mô hình đã lưu, đang huấn luyện mới...")
+        
+        # Kiểm tra dữ liệu đã xử lý
+        processed_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
+        if not os.path.exists(processed_path):
+            # Xử lý dữ liệu nếu chưa có
+            processor = DataProcessor()
+            processor.process_all()
+        
+        # Đọc dữ liệu đã xử lý
+        tracks_df = pd.read_csv(processed_path)
+        
+        # Huấn luyện mô hình
         model = MetadataRecommender()
         model.train(tracks_df)
-        return f"✅ Đã huấn luyện mô hình với {len(tracks_df)} bài hát."
+        
+        # Lưu mô hình
+        model.save(model_path)
+        
+        logging.info(f"Đã huấn luyện và lưu mô hình thành công!")
+        return "Đã huấn luyện mô hình thành công!"
+        
     except Exception as e:
-        logger.error(f"Lỗi huấn luyện mô hình: {e}\n{traceback.format_exc()}")
-        return f"❌ Lỗi huấn luyện mô hình: {e}"
-
+        logging.error(f"Lỗi khi huấn luyện mô hình: {str(e)}")
+        return f"Lỗi khi huấn luyện mô hình: {str(e)}"
+    
 def recommend_similar(song_name, artist_name="", n=10):
     global model
     if model is None or not model.is_trained:
-        return "⚠️ Vui lòng huấn luyện mô hình trước."
+        return "Mô hình chưa được huấn luyện. Vui lòng huấn luyện mô hình trước."
     try:
-        recs = model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
-        if recs is None or recs.empty:
-            return "Không tìm thấy bài hát hoặc không có đề xuất phù hợp."
-        result = "| # | Bài hát | Nghệ sĩ |\n|---|---|---|\n"
-        for i, row in enumerate(recs.itertuples(), 1):
-            result += f"| {i} | {row.name} | {row.artist} |\n"
-        return result
+        recommendations = model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
+        if isinstance(recommendations, str):
+            return recommendations
+        # Trả về markdown để Gradio Markdown/Textbox không lỗi
+        return recommendations.to_markdown(index=False)
     except Exception as e:
-        logger.error(f"Lỗi đề xuất: {e}\n{traceback.format_exc()}")
-        return f"❌ Lỗi đề xuất: {e}"
+        logging.error(f"Lỗi khi đề xuất: {e}")
+        return f"Lỗi khi đề xuất: {str(e)}"
 
 def generate_playlist(seed_track, seed_artist="", queue_length=10):
     global model
@@ -173,6 +209,9 @@ def create_ui():
 
 if __name__ == "__main__":
     import argparse
+    
+    # Khởi tạo model nếu có
+    initialize_model()
     
     parser = argparse.ArgumentParser(description="Hệ thống đề xuất âm nhạc")
     parser.add_argument("--fetch-large", action="store_true", help="Thu thập tập dữ liệu lớn (100,000+ bài hát)")

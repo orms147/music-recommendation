@@ -14,11 +14,11 @@ class ContentBasedRecommender(BaseRecommender):
     """Content-based recommendation model using metadata features"""
     
     def __init__(self):
-        super().__init__(name="ContentBasedRecommender")
+        super().__init__()
         self.tracks_df = None
         self.similarity_matrix = None
-        self.track_indices = None
-    
+        self.is_trained = False
+
     def train(self, tracks_df=None):
         """Train the model using track features"""
         start_time = datetime.now()
@@ -80,85 +80,45 @@ class ContentBasedRecommender(BaseRecommender):
     
     def _normalize_text(self, text):
         """Normalize text for better matching"""
-        if not text:
-            return ""
-        
-        # Convert to string if not already
         if not isinstance(text, str):
-            text = str(text)
-            
-        # Normalize Unicode (NFC) for Vietnamese
-        return unicodedata.normalize('NFC', text).lower().strip()
+            return ""
+        return text.lower().strip()
     
     def _find_track_index(self, track_id=None, track_name=None, artist=None):
-        """Find track index with enhanced error handling"""
-        if track_id is not None and track_id in self.track_indices:
-            return self.track_indices[track_id]
-        
+        """Find track index with stable, consistent behavior"""
+        temp_df = self.tracks_df.copy()
+        temp_df['name_norm'] = temp_df['name'].apply(self._normalize_text)
+        temp_df['artist_norm'] = temp_df['artist'].apply(self._normalize_text)  # Luôn tạo cột này
+
+        # Tìm theo ID
+        if track_id is not None and 'id' in temp_df.columns:
+            matches = temp_df[temp_df['id'] == track_id].index.tolist()
+            if matches:
+                return matches[0]
+
+        # Tìm theo tên và nghệ sĩ
         if track_name is not None:
-            # Normalize track name for searching
             track_name_norm = self._normalize_text(track_name)
-            
-            # 1. Exact match
-            self.tracks_df['name_norm'] = self.tracks_df['name'].apply(self._normalize_text)
-            matches = self.tracks_df[self.tracks_df['name_norm'] == track_name_norm]
-            
-            # 2. Filter by artist if provided
+            matches = temp_df[temp_df['name_norm'] == track_name_norm]
             if artist is not None and not matches.empty:
                 artist_norm = self._normalize_text(artist)
-                self.tracks_df['artist_norm'] = self.tracks_df['artist'].apply(self._normalize_text)
-                artist_matches = matches[matches['artist_norm'] == artist_norm]
-                if not artist_matches.empty:
-                    matches = artist_matches
-            
+                matches = matches[matches['artist_norm'] == artist_norm]
             if not matches.empty:
-                track_idx = self.track_indices[matches.iloc[0]['id']]
-                # Clean up temporary columns
-                self.tracks_df.drop(columns=['name_norm', 'artist_norm'], inplace=True, errors='ignore')
-                return track_idx
-            
-            # 3. Partial matching
-            partial_matches = self.tracks_df[self.tracks_df['name_norm'].str.contains(track_name_norm)]
+                return matches.index[0]
+            # Tìm kiếm một phần
+            partial_matches = temp_df[temp_df['name_norm'].str.contains(track_name_norm)]
             if artist is not None and not partial_matches.empty:
                 artist_norm = self._normalize_text(artist)
-                artist_partial = partial_matches[partial_matches['artist_norm'].str.contains(artist_norm)]
-                if not artist_partial.empty:
-                    partial_matches = artist_partial
-            
+                partial_matches = partial_matches[partial_matches['artist_norm'].str.contains(artist_norm)]
             if not partial_matches.empty:
-                track_idx = self.track_indices[partial_matches.iloc[0]['id']]
-                # Clean up temporary columns
-                self.tracks_df.drop(columns=['name_norm', 'artist_norm'], inplace=True, errors='ignore')
-                return track_idx
-            
-            # Clean up temporary columns
-            self.tracks_df.drop(columns=['name_norm', 'artist_norm'], inplace=True, errors='ignore')
-        
-        # 4. Find by artist only if no track_name provided
-        if track_name is None and artist is not None:
-            artist_norm = self._normalize_text(artist)
-            self.tracks_df['artist_norm'] = self.tracks_df['artist'].apply(self._normalize_text)
-            artist_matches = self.tracks_df[self.tracks_df['artist_norm'] == artist_norm]
-            
-            if not artist_matches.empty:
-                # Return most popular track by artist
-                popular_track = artist_matches.sort_values('popularity', ascending=False).iloc[0]
-                track_idx = self.track_indices[popular_track['id']]
-                
-                # Clean up temporary column
-                self.tracks_df.drop(columns=['artist_norm'], inplace=True, errors='ignore')
-                return track_idx
-                
-            # Clean up temporary column
-            self.tracks_df.drop(columns=['artist_norm'], inplace=True, errors='ignore')
-        
+                return partial_matches.index[0]
         return None
     
     def recommend(self, track_name=None, track_id=None, artist=None, n_recommendations=10):
         """Recommend tracks similar to the input track with enhanced error handling"""
         if not self.is_trained:
             logger.error("Model not trained. Please train the model first.")
-            return pd.DataFrame()
+            return "Model not trained."
         
         n_recommendations = min(n_recommendations, len(self.tracks_df) - 1)
         
@@ -168,36 +128,33 @@ class ContentBasedRecommender(BaseRecommender):
         # If track not found, return random recommendations as fallback
         if track_idx is None:
             logger.warning(f"Track not found: '{track_name}' by {artist}. Returning random recommendations.")
-            # Return random tracks as fallback
+            # Đặt seed cố định để kết quả fallback luôn giống nhau cho cùng input
+            seed = sum(ord(c) for c in (track_name or ""))
+            np.random.seed(seed)
             sample_indices = np.random.choice(
                 len(self.tracks_df), 
                 size=min(n_recommendations, len(self.tracks_df)),
                 replace=False
             )
-            recommendations = self.tracks_df.iloc[sample_indices][['id', 'name', 'artist']].copy()
-            recommendations['content_score'] = 0.5  # Baseline score
+            recommendations = self.tracks_df.iloc[sample_indices][['name', 'artist']].copy()
+            recommendations['content_score'] = 0.5
             return recommendations
         
         # Get similarity scores
         sim_scores = list(enumerate(self.similarity_matrix[track_idx]))
         
         # Sort by similarity
-        sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+        sim_scores = sorted(sim_scores, key=lambda x: (x[1], -x[0]), reverse=True)
         
         # Exclude the input track
-        sim_scores = sim_scores[1:n_recommendations+1]
+        sim_scores = [s for s in sim_scores if s[0] != track_idx][:n_recommendations]
         
         # Get track indices
         track_indices = [i[0] for i in sim_scores]
         
         # Get recommendations with similarity scores
-        recommendations = self.tracks_df.iloc[track_indices][['id', 'name', 'artist']].copy()
+        recommendations = self.tracks_df.iloc[track_indices][['name', 'artist']].copy()
         recommendations['content_score'] = [i[1] for i in sim_scores]
-        
-        # Log metrics
-        avg_score = recommendations['content_score'].mean()
-        logger.info(f"Generated {len(recommendations)} recommendations for '{track_name}' by {artist}")
-        logger.info(f"Average content score: {avg_score:.4f}")
         
         return recommendations
     
@@ -262,3 +219,33 @@ class ContentBasedRecommender(BaseRecommender):
             return final_ids
         
         return seed_ids
+    
+    def __getstate__(self):
+        """Customize pickling behavior"""
+        state = self.__dict__.copy()
+        
+        # Lưu thuộc tính cần thiết để phục hồi mô hình
+        # Đảm bảo không lưu các thuộc tính quá lớn nếu có thể tái tạo lại
+        if 'similarity_matrix' in state and state['similarity_matrix'] is not None:
+            # Nếu ma trận tương tự quá lớn, chúng ta có thể lưu ở định dạng tối ưu hơn
+            # Chẳng hạn sử dụng scipy.sparse nếu ma trận thưa
+            from scipy import sparse
+            if sparse.issparse(state['similarity_matrix']):
+                pass
+            else:
+                density = np.count_nonzero(state['similarity_matrix']) / state['similarity_matrix'].size
+                if density < 0.5:  # Nếu ma trận thưa (ít hơn 50% phần tử khác 0)
+                    state['similarity_matrix'] = sparse.csr_matrix(state['similarity_matrix'])
+        
+        return state
+
+    def __setstate__(self, state):
+        """Customize unpickling behavior"""
+        # Khôi phục trạng thái từ pickle
+        self.__dict__.update(state)
+        
+        # Chuyển đổi lại ma trận thưa thành ma trận thường nếu cần
+        if 'similarity_matrix' in state and state['similarity_matrix'] is not None:
+            from scipy import sparse
+            if sparse.issparse(state['similarity_matrix']):
+                self.similarity_matrix = state['similarity_matrix'].toarray()

@@ -57,6 +57,6 @@ MIN_TRACKS_PER_QUERY = 5       # Giới hạn tối thiểu số bài hát mỗi
 TRACKS_QUERY_STEP = 5          # Bước nhảy cho thanh trượt
 
 # Cài đặt cho bộ dữ liệu lớn
-LARGE_DATASET_DEFAULT_SIZE = 50000  # Kích thước mặc định cho tập dữ liệu lớn
+LARGE_DATASET_DEFAULT_SIZE = 40000  # Kích thước mặc định cho tập dữ liệu lớn
 LARGE_DATASET_BATCH_SIZE = 250      # Số lượng truy vấn mỗi lô
-LARGE_DATASET_SAVE_INTERVAL = 2500  # Lưu sau mỗi bao nhiêu bài hát
+LARGE_DATASET_SAVE_INTERVAL = 5000  # Lưu sau mỗi bao nhiêu bài hát
