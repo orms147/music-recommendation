@@ -1,0 +1,10 @@
+pandas
+numpy
+scikit-learn
+spotipy
+tqdm
+matplotlib
+seaborn
+plotly
+joblib
+gradio
