@@ -3,6 +3,7 @@ import numpy as np
 import os
 import pickle
 import logging
+import traceback
 from abc import ABC, abstractmethod
 from datetime import datetime
 from config.config import MODELS_DIR
@@ -92,9 +93,9 @@ class BaseRecommender(ABC):
             logger.info(f"Model saved to {filepath}")
             return True
         except Exception as e:
-            logger.error(f"Error saving model: {e}")
+            logger.error(f"Error saving model to {filepath}: {e}\n{traceback.format_exc()}")
             return False
-
+    
     @classmethod
     def load(cls, filepath):
         """Load a model from a file"""
@@ -104,7 +105,7 @@ class BaseRecommender(ABC):
             logger.info(f"Model loaded from {filepath}")
             return model
         except Exception as e:
-            logger.error(f"Error loading model: {e}")
+            logger.error(f"Error loading model from {filepath}: {e}\n{traceback.format_exc()}")
             return None
     
     def _validate_n_recommendations(self, n):

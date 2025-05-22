@@ -106,7 +106,7 @@ class ContentBasedRecommender(BaseRecommender):
             if not matches.empty:
                 return matches.index[0]
             # Tìm kiếm một phần
-            partial_matches = temp_df[temp_df['name_norm'].str.contains(track_name_norm)]
+            partial_matches = temp_df[temp_df['name_norm'].str.contains(track_name_norm, regex=False)]
             if artist is not None and not partial_matches.empty:
                 artist_norm = self._normalize_text(artist)
                 partial_matches = partial_matches[partial_matches['artist_norm'].str.contains(artist_norm)]
