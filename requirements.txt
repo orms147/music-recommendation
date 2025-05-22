@@ -20,17 +20,10 @@ python-dotenv>=0.19.0
 tqdm>=4.62.0
 joblib>=1.1.0
 
-# Optional: Deep learning support
-tensorflow>=2.7.0
-torch>=1.10.0
-
 # NLP processing (for text analysis)
 nltk>=3.6.0
 
-# File handling
-pathlib>=1.0.1
-
-# Unicode handling for Vietnamese
+# Unicode handling for Vietnamese text
 unicodedata2>=14.0.0
 
 # Logging and progress tracking
