@@ -200,3 +200,36 @@ class HybridRecommender(BaseRecommender):
         optimized_queue = self.optimize_queue(queue)
         
         return optimized_queue
+    
+    def generate_playlist_from_seed(self, seed_track, seed_artist="", n_recommendations=10):
+        """Generate a playlist from a seed track with transition analysis"""
+        try:
+            # Tìm kiếm bài hát ban đầu
+            track_idx = self.content_recommender._find_track_index(track_name=seed_track, artist=seed_artist)
+            
+            if track_idx is None:
+                logger.warning(f"Seed track '{seed_track}' not found")
+                return None, None
+                
+            seed_id = self.tracks_df.iloc[track_idx]['id']
+            
+            # Tạo queue với số lượng bài hát đề xuất
+            track_ids = self.recommend_queue([seed_id], n_recommendations)
+            
+            if not track_ids:
+                return None, None
+                
+            # Lấy thông tin bài hát
+            queue = self.tracks_df[self.tracks_df['id'].isin(track_ids)].copy()
+            
+            # Đảm bảo thứ tự trong queue
+            queue['order'] = queue['id'].apply(lambda x: track_ids.index(x))
+            queue = queue.sort_values('order').drop('order', axis=1)
+            
+            # Tạo phân tích chuyển tiếp
+            analysis = self.analyze_queue(track_ids)
+            
+            return queue, analysis
+        except Exception as e:
+            logger.error(f"Error generating playlist: {e}")
+            return None, None

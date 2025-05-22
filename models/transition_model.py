@@ -262,7 +262,7 @@ class TransitionModel(BaseRecommender):
             elif score >= 0.6:
                 quality = "Good"
             elif score >= 0.4:
-                quality = "Average"
+                quality = "Fair"
             else:
                 quality = "Poor"
                 

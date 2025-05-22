@@ -135,8 +135,12 @@ class DataProcessor:
         initial_count = len(self.tracks_df)
         
         # Kết hợp với dữ liệu bài hát
+        genres_columns = ['artist_id', 'genres']
+        if 'artist_popularity' in self.artist_genres_df.columns:
+            genres_columns.append('artist_popularity')
+        
         merged_df = self.tracks_df.merge(
-            self.artist_genres_df[['artist_id', 'artist_genres', 'artist_popularity']], 
+            self.artist_genres_df[genres_columns], 
             left_on='artist_id', 
             right_on='artist_id', 
             how='left'

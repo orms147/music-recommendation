@@ -506,16 +506,51 @@ def setup_full_system(progress=gr.Progress()):
 def create_ui():
     """Tạo giao diện người dùng Gradio"""
     with gr.Blocks(title="Hệ thống Đề xuất Âm nhạc") as app:
-        # Các tab và giao diện hiện tại
+        # Tab Trang chủ
         with gr.Tab("Trang chủ"):
             gr.Markdown("# Hệ thống Đề xuất Âm nhạc")
-            gr.Markdown("Chào mừng đến với hệ thống đề xuất âm nhạc!")
+            gr.Markdown("Chào mừng đến với hệ thống đề xuất âm nhạc thông minh!")
             
-            # Thêm nút kiểm tra kết nối API
-            api_status = gr.Markdown("Trạng thái kết nối API: Chưa kiểm tra")
-            check_api_button = gr.Button("Kiểm tra kết nối Spotify API")
+            # Trạng thái hệ thống
+            gr.Markdown("## Trạng thái hệ thống")
+            
+            with gr.Row():
+                with gr.Column():
+                    api_status = gr.Markdown("Trạng thái kết nối API: Chưa kiểm tra")
+                    model_status = gr.Markdown("Trạng thái mô hình: Chưa kiểm tra")
+                
+                with gr.Column():
+                    check_api_button = gr.Button("Kiểm tra kết nối Spotify API")
+                    check_model_button = gr.Button("Kiểm tra trạng thái mô hình")
+            
             check_api_button.click(fn=test_spotify_connection, inputs=[], outputs=api_status)
+            check_model_button.click(fn=load_model, inputs=[], outputs=model_status)
+        
+        # Tab Thiết lập hệ thống
+        with gr.Tab("Thiết lập hệ thống"):
+            gr.Markdown("# Thiết lập hệ thống")
+            gr.Markdown("Thiết lập dữ liệu và huấn luyện mô hình trước khi sử dụng")
             
+            with gr.Row():
+                with gr.Column():
+                    setup_data_btn = gr.Button("1. Thiết lập dữ liệu ban đầu")
+                    process_data_btn = gr.Button("2. Xử lý dữ liệu")
+                    train_models_btn = gr.Button("3. Huấn luyện mô hình")
+                    setup_all_btn = gr.Button("Thiết lập toàn bộ hệ thống (1+2+3)", variant="primary")
+                    
+                    tracks_per_query = gr.Slider(minimum=5, maximum=50, value=15, step=5,
+                                              label="Số bài hát mỗi truy vấn")
+                
+                with gr.Column():
+                    setup_output = gr.Markdown("Kết quả sẽ hiển thị ở đây...")
+            
+            # Kết nối các nút với hàm tương ứng
+            setup_data_btn.click(fn=setup_initial_dataset, inputs=[tracks_per_query], outputs=setup_output)
+            process_data_btn.click(fn=process_data, inputs=[], outputs=setup_output)
+            train_models_btn.click(fn=train_models, inputs=[], outputs=setup_output)
+            setup_all_btn.click(fn=setup_full_system, inputs=[], outputs=setup_output)
+            
+        # Tab Đề xuất
         with gr.Tab("Đề xuất"):
             with gr.Row():
                 with gr.Column():
@@ -532,6 +567,51 @@ def create_ui():
                 fn=generate_queue,
                 inputs=[song_input, artist_input, queue_length],
                 outputs=result_output
+            )
+        
+        # Tab Tối ưu hóa hàng đợi
+        with gr.Tab("Tối ưu hóa hàng đợi"):
+            gr.Markdown("# Tối ưu hóa hàng đợi phát nhạc")
+            gr.Markdown("Nhập danh sách bài hát để tối ưu thứ tự phát tạo trải nghiệm nghe tốt nhất")
+            
+            with gr.Row():
+                with gr.Column():
+                    queue_input = gr.Textbox(
+                        label="Danh sách bài hát (cách nhau bởi dấu phẩy)",
+                        placeholder="Last Christmas - Wham, Shape of You - Ed Sheeran, Blinding Lights - The Weeknd",
+                        lines=5
+                    )
+                    optimize_btn = gr.Button("Tối ưu hóa hàng đợi")
+                
+                with gr.Column():
+                    optimize_output = gr.Markdown("Kết quả tối ưu hóa sẽ hiển thị ở đây")
+            
+            optimize_btn.click(
+                fn=optimize_music_queue,
+                inputs=[queue_input],
+                outputs=optimize_output
+            )
+            
+        # Tab Tìm kiếm bài hát tương tự
+        with gr.Tab("Tìm kiếm tương tự"):
+            gr.Markdown("# Tìm kiếm bài hát tương tự")
+            gr.Markdown("Tìm các bài hát tương tự với bài hát bạn yêu thích")
+            
+            with gr.Row():
+                with gr.Column():
+                    similar_song_input = gr.Textbox(label="Nhập tên bài hát")
+                    similar_artist_input = gr.Textbox(label="Nhập tên nghệ sĩ (tùy chọn)")
+                    similar_count = gr.Slider(minimum=5, maximum=20, value=10, step=1, 
+                                            label="Số lượng bài hát tương tự")
+                    similar_btn = gr.Button("Tìm bài hát tương tự")
+                
+                with gr.Column():
+                    similar_output = gr.Markdown("Kết quả tìm kiếm sẽ hiển thị ở đây")
+            
+            similar_btn.click(
+                fn=lambda song, artist, count: get_song_recommendations(song, artist, count)[1],  # Lấy phần văn bản
+                inputs=[similar_song_input, similar_artist_input, similar_count],
+                outputs=similar_output
             )
             
     return app

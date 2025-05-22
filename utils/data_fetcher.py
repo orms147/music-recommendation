@@ -132,7 +132,7 @@ class SpotifyDataFetcher:
             logger.warning("No tracks fetched")
             return pd.DataFrame()
     
-    def fetch_audio_features(self, track_ids):
+    def fetch_audio_features(self, track_ids, save_path=None):
         """Fetch audio features for a list of track IDs with improved error handling"""
         if not track_ids:
             return pd.DataFrame()
@@ -160,6 +160,11 @@ class SpotifyDataFetcher:
                 
                 # Chuyển đổi sang DataFrame
                 audio_df = pd.DataFrame(audio_features)
+                
+                # Lưu vào file nếu có đường dẫn
+                if save_path and not audio_df.empty:
+                    audio_df.to_csv(save_path, index=False)
+                    logger.info(f"Đã lưu {len(audio_df)} audio features vào {save_path}")
                 
                 return audio_df
                 
@@ -194,13 +199,11 @@ class SpotifyDataFetcher:
         """Reinitialize Spotify client to refresh token"""
         try:
             logger.info("Reinitializing Spotify client...")
-            self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+            auth_manager = spotipy.oauth2.SpotifyClientCredentials(
                 client_id=SPOTIFY_CLIENT_ID,
-                client_secret=SPOTIFY_CLIENT_SECRET,
-                redirect_uri=SPOTIFY_REDIRECT_URI,
-                scope="user-library-read user-top-read",
-                cache_path=".spotifycache"
-            ))
+                client_secret=SPOTIFY_CLIENT_SECRET
+            )
+            self.sp = spotipy.Spotify(auth_manager=auth_manager)
             # Test connection
             self.sp.search(q="test", limit=1)
             logger.info("Spotify client reinitialized successfully")
