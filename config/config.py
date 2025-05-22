@@ -1,41 +1,53 @@
 import os
 from pathlib import Path
+import logging
 
 # Đường dẫn thư mục
 BASE_DIR = Path(__file__).parent.parent.absolute()
-DATA_DIR = os.path.join(BASE_DIR, "data")
-RAW_DATA_DIR = os.path.join(DATA_DIR, "raw")
-PROCESSED_DATA_DIR = os.path.join(DATA_DIR, "processed")
-MODELS_DIR = os.path.join(BASE_DIR, "models")
-LOGS_DIR = os.path.join(BASE_DIR, "logs")
+RAW_DATA_DIR = os.path.join(BASE_DIR, 'data', 'raw')
+PROCESSED_DATA_DIR = os.path.join(BASE_DIR, 'data', 'processed')
+MODELS_DIR = os.path.join(BASE_DIR, 'models')
 
-# Tạo thư mục nếu chưa tồn tại
-for dir_path in [DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR, LOGS_DIR]:
-    os.makedirs(dir_path, exist_ok=True)
+# Đảm bảo các thư mục tồn tại
+os.makedirs(RAW_DATA_DIR, exist_ok=True)
+os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
+os.makedirs(MODELS_DIR, exist_ok=True)
 
 # Cấu hình Spotify API
-SPOTIFY_CLIENT_ID = ""  
-SPOTIFY_CLIENT_SECRET = ""  
+# Đọc từ môi trường hoặc sử dụng giá trị mặc định cho môi trường dev
+SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID', '')
+SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET', '')
 
-# Tham số mô hình
-N_RECOMMENDATIONS = 10  # Số lượng bài hát gợi ý mặc định
-TOP_K_SIMILAR_ITEMS = 100  # Số lượng bài hát tương tự để xem xét
+# Function to check credentials are set
+def check_spotify_credentials():
+    """Check if Spotify credentials are set and valid"""
+    if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+        logging.error("SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET not set in environment")
+        return False
+    return True
 
-# Danh sách đặc trưng có sẵn trong dữ liệu của bạn để sử dụng cho mô hình content-based
+# API configuration
+API_RATE_LIMIT = 0.5  # seconds between API calls
+API_MAX_RETRIES = 5   # maximum number of retries for API calls
+API_BATCH_SIZE = 50   # items per batch for API calls
+
+# Cấu hình trọng số cho mô hình kết hợp
+CONTENT_WEIGHT = 0.7  # Content-based recommendation weight
+COLLABORATIVE_WEIGHT = 0.0  # Not using collaborative filtering
+SEQUENCE_WEIGHT = 0.3  # Transition-based recommendation weight
+
+# Danh sách đặc trưng cho mô hình content-based
 CONTENT_FEATURES = [
-    'popularity', 'duration_ms', 'explicit', 'release_year'
-]  # Loại bỏ các genre features
+    # Đặc trưng cơ bản
+    'popularity', 'duration_ms', 'explicit', 'release_year',
+    
+    # Đặc trưng âm thanh
+    'danceability', 'energy', 'loudness', 'speechiness', 
+    'acousticness', 'instrumentalness', 'liveness', 'valence', 'tempo'
+]
 
-# Weights for hybrid model - tăng trọng số cho content do không có audio features
-CONTENT_WEIGHT = 0.7
-COLLABORATIVE_WEIGHT = 0.3
-SEQUENCE_WEIGHT = 0.0  # Vô hiệu hóa vì không có đặc trưng âm thanh
+# Fallback mode - if True, system will try to work even with missing data
+FALLBACK_MODE = True
 
-# Tham số khác
-RANDOM_STATE = 42  # Random seed for reproducibility
-
-# Tham số huấn luyện
-TRAIN_TEST_SPLIT = 0.8
-N_EPOCHS = 20
-LEARNING_RATE = 0.01
-BATCH_SIZE = 64
+# Model configuration
+MODEL_PATH = os.path.join(MODELS_DIR, 'hybrid_recommender.pkl')

@@ -1,104 +1,85 @@
 import pandas as pd
 import numpy as np
-import os
 import logging
+import os
 from datetime import datetime
 from models.base_model import BaseRecommender
 from models.content_model import ContentBasedRecommender
-from models.collaborative_model import CollaborativeFilteringRecommender
-from config.config import CONTENT_WEIGHT, COLLABORATIVE_WEIGHT, SEQUENCE_WEIGHT, PROCESSED_DATA_DIR
+from models.transition_model import TransitionModel
+from config.config import CONTENT_WEIGHT, COLLABORATIVE_WEIGHT, SEQUENCE_WEIGHT
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class HybridRecommender(BaseRecommender):
-    """Hybrid recommendation model combining multiple approaches"""
+    """Hybrid recommendation model combining content-based and transition-based approaches"""
     
     def __init__(self):
         super().__init__(name="HybridRecommender")
         self.content_recommender = ContentBasedRecommender()
-        self.collab_recommender = CollaborativeFilteringRecommender()
+        self.transition_model = TransitionModel()
         self.content_weight = CONTENT_WEIGHT
-        self.collab_weight = COLLABORATIVE_WEIGHT
-        self.sequence_weight = 0.0  # Vô hiệu hóa
-        self.tracks_df = None  # Thêm để lưu tham chiếu
+        self.transition_weight = SEQUENCE_WEIGHT
+        self.tracks_df = None
     
     def train(self, tracks_df, user_item_matrix=None, user_sequences=None):
         """Train all component models"""
         start_time = datetime.now()
         
-        # Lưu tracks_df để sử dụng trong quá trình đề xuất
+        # Save tracks_df for use during recommendation
         self.tracks_df = tracks_df
         
         # Train content-based model
         logger.info("Training content-based recommender...")
         self.content_recommender.train(tracks_df)
         
-        # Train collaborative filtering model if user-item matrix available
-        if user_item_matrix is not None and not user_item_matrix.empty:
-            logger.info("Training collaborative filtering recommender...")
-            self.collab_recommender.train(user_item_matrix)
-        else:
-            logger.warning("No user-item matrix available. Collaborative filtering won't be used.")
-            self.collab_weight = 0.0
-            self.content_weight = 1.0  # Chỉ sử dụng content-based
-        
-        # Vô hiệu hóa sequence-based model
-        self.sequence_weight = 0.0
+        # Train transition model
+        logger.info("Training transition model...")
+        self.transition_model.train(tracks_df)
         
         self.train_time = datetime.now() - start_time
         logger.info(f"Hybrid model trained in {self.train_time.total_seconds():.2f} seconds")
-        logger.info(f"Final weights: Content={self.content_weight:.2f}, "
-                     f"Collaborative={self.collab_weight:.2f}, Sequence={self.sequence_weight:.2f}")
+        logger.info(f"Weights: Content={self.content_weight:.2f}, "
+                   f"Transition={self.transition_weight:.2f}")
         
         self.is_trained = True
         return True
     
-    def recommend(self, track_name=None, artist=None, user_id=None, recent_tracks=None, n_recommendations=10):
-        """Generate recommendations using all available models"""
+    def recommend(self, track_name=None, artist=None, user_id=None, n_recommendations=10):
+        """Generate track recommendations"""
         if not self.is_trained:
             logger.error("Model not trained. Please train the model first.")
             return pd.DataFrame()
         
-        n_recommendations = self._validate_n_recommendations(n_recommendations)
+        n_recommendations = min(n_recommendations, len(self.tracks_df) - 1) if self.tracks_df is not None else n_recommendations
         all_recommendations = []
         weights = []
         
         # Content-based recommendations
         if track_name is not None and self.content_weight > 0:
             try:
-                content_recs = self.content_recommender.recommend(track_name=track_name, artist=artist, n_recommendations=n_recommendations*2)
+                content_recs = self.content_recommender.recommend(
+                    track_name=track_name, 
+                    artist=artist, 
+                    n_recommendations=n_recommendations*2
+                )
                 if not content_recs.empty:
                     all_recommendations.append(content_recs)
                     weights.append(self.content_weight)
             except Exception as e:
                 logger.error(f"Error generating content-based recommendations: {e}")
         
-        # Collaborative filtering recommendations
-        if user_id is not None and self.collab_weight > 0:
-            try:
-                collab_recs = self.collab_recommender.recommend(user_id=user_id, n_recommendations=n_recommendations*2)
-                if not collab_recs.empty:
-                    all_recommendations.append(collab_recs)
-                    weights.append(self.collab_weight)
-            except Exception as e:
-                logger.error(f"Error generating collaborative filtering recommendations: {e}")
-        
-        # Loại bỏ phần sequence model
-        
-        # Nếu không có đề xuất, trả về DataFrame rỗng
+        # If no recommendations, return fallback
         if not all_recommendations:
-            logger.warning("No recommendations were generated by any model")
+            logger.warning("No recommendations were generated")
             # Return random recommendations as fallback
-            try:
-                if hasattr(self, 'tracks_df') and self.tracks_df is not None:
-                    random_tracks = self.tracks_df.sample(min(n_recommendations, len(self.tracks_df)))
-                    random_tracks['weighted_score'] = 0.1  # Low confidence score
-                    random_tracks['source'] = 'random'
-                    return random_tracks
-            except Exception as e:
-                logger.error(f"Error generating random recommendations: {e}")
-            return pd.DataFrame()
+            if hasattr(self, 'tracks_df') and self.tracks_df is not None:
+                sample_size = min(n_recommendations, len(self.tracks_df))
+                random_tracks = self.tracks_df.sample(sample_size)
+                random_tracks['weighted_score'] = 0.5  # Medium confidence
+                random_tracks['source'] = 'fallback'
+                return random_tracks[['id', 'name', 'artist', 'weighted_score', 'source']]
+            else:
+                return pd.DataFrame()
         
         # Merge and rank recommendations
         return self._merge_recommendations(all_recommendations, weights, n_recommendations)
@@ -107,55 +88,54 @@ class HybridRecommender(BaseRecommender):
         """Merge recommendations from different sources with weighted scoring"""
         if not all_recommendations:
             logger.warning("No recommendations to merge")
-            # Trả về DataFrame trống với cấu trúc phù hợp
+            # Return empty DataFrame with correct columns
             return pd.DataFrame(columns=['id', 'name', 'artist', 'weighted_score', 'source'])
         
-        # Kết hợp tất cả đề xuất
+        # Process each recommendation set
         for i, recommendations in enumerate(all_recommendations):
-            # Thêm cột weight
+            # Add weight column
             recommendations['weight'] = weights[i]
             
-            # Xác định cột score (content_score, collab_score, etc.)
+            # Find score column (e.g., content_score, collab_score)
             score_cols = [col for col in recommendations.columns if col.endswith('_score')]
             if score_cols:
                 score_col = score_cols[0]
-                # Tính điểm có trọng số
+                # Calculate weighted score
                 recommendations['weighted_score'] = recommendations[score_col] * weights[i]
-                # Đặt nguồn đề xuất (content, collab, etc.)
+                # Set source
                 recommendations['source'] = score_col.split('_')[0]
             else:
-                # Nếu không tìm thấy cột score, đặt điểm mặc định
+                # Default values if no score column found
                 recommendations['weighted_score'] = weights[i] * 0.5
                 recommendations['source'] = 'unknown'
         
-        # Gộp tất cả đề xuất
+        # Combine all recommendations
         combined = pd.concat(all_recommendations)
         
-        # Xếp hạng theo điểm
+        # Sort by weighted score
         combined = combined.sort_values('weighted_score', ascending=False)
         
-        # Loại bỏ trùng lặp, giữ lại bản ghi có điểm cao nhất
+        # Remove duplicates
         combined = combined.drop_duplicates(subset=['id'])
         
-        # Lấy n đề xuất hàng đầu
+        # Get top recommendations
         result = combined.head(n_recommendations)
         
-        # Thêm thông tin từ tracks_df nếu có
+        # Ensure name and artist columns exist
         if hasattr(self, 'tracks_df') and self.tracks_df is not None:
-            # Kiểm tra xem result có các cột cần thiết không
             if 'name' not in result.columns or 'artist' not in result.columns:
-                # Thêm id vào result nếu không có
+                # Handle if ID column has different name
                 if 'id' not in result.columns and 'track_id' in result.columns:
                     result = result.rename(columns={'track_id': 'id'})
-                    
-                # Hợp nhất với tracks_df
+                
+                # Merge with tracks_df to get names and artists
                 result = result.merge(
                     self.tracks_df[['id', 'name', 'artist']],
                     on='id',
                     how='left'
                 )
         
-        # Nếu vẫn không có các cột cần thiết, thêm chúng vào với giá trị mặc định
+        # Default values for missing columns
         if 'name' not in result.columns:
             result['name'] = 'Unknown'
         if 'artist' not in result.columns:
@@ -163,64 +143,60 @@ class HybridRecommender(BaseRecommender):
         
         return result
     
-    def _combine_recommendations(self, content_recs, collab_recs, n_recommendations):
-        """Combine recommendations from different sources with weighted scoring"""
-        if content_recs.empty and collab_recs.empty:
-            logger.error("No recommendations generated from any component model")
-            return pd.DataFrame()
+    def optimize_queue(self, track_ids=None, track_names=None, start_fixed=True, end_fixed=False):
+        """Optimize a queue of tracks for smooth transitions"""
+        if not self.is_trained:
+            logger.error("Model not trained. Please train the model first.")
+            return track_ids if track_ids else []
         
-        if content_recs.empty:
-            return collab_recs.head(n_recommendations)
+        # Handle track names if provided
+        if track_ids is None and track_names is not None:
+            track_ids = []
+            for name in track_names:
+                # Try to find track by name
+                track_idx = self.content_recommender._find_track_index(track_name=name)
+                if track_idx is not None:
+                    track_ids.append(self.tracks_df.iloc[track_idx]['id'])
         
-        if collab_recs.empty:
-            return content_recs.head(n_recommendations)
+        if not track_ids:
+            logger.warning("No valid track IDs for queue optimization")
+            return []
         
-        # Combine all recommendations
-        all_recs = pd.concat([
-            content_recs[['id', 'name', 'artist', 'content_score']].assign(source='content'),
-            collab_recs[['id', 'name', 'artist', 'collab_score']].assign(source='collab')
-        ])
-        
-        # Fill missing scores
-        all_recs['content_score'] = all_recs['content_score'].fillna(0)
-        all_recs['collab_score'] = all_recs['collab_score'].fillna(0)
-        
-        # Group by track ID to handle duplicates
-        grouped = all_recs.groupby('id').agg({
-            'name': 'first',
-            'artist': 'first',
-            'content_score': 'max',
-            'collab_score': 'max',
-            'source': lambda x: '|'.join(set(x))
-        }).reset_index()
-        
-        # Normalize scores
-        for col in ['content_score', 'collab_score']:
-            if grouped[col].max() > 0:
-                grouped[col] = grouped[col] / grouped[col].max()
-        
-        # Calculate weighted score
-        grouped['weighted_score'] = (
-            grouped['content_score'] * self.content_weight +
-            grouped['collab_score'] * self.collab_weight
-        )
-        
-        # Sort by weighted score
-        grouped = grouped.sort_values('weighted_score', ascending=False)
-        
-        # Return top N recommendations
-        return grouped.head(n_recommendations)
+        # Use transition model to optimize the queue
+        return self.transition_model.optimize_queue(track_ids, start_fixed, end_fixed)
     
-    def _log_recommendation_metrics(self, input_data, recommendations):
-        """Log metrics about the recommendations"""
-        if not recommendations.empty:
-            sources = recommendations['source'].value_counts().to_dict()
-            source_str = ', '.join([f"{k}: {v}" for k, v in sources.items()])
-            logger.info(f"Recommendation sources: {source_str}")
-            logger.info(f"Average weighted score: {recommendations['weighted_score'].mean():.4f}")
-            
-            if 'content_score' in recommendations.columns:
-                logger.info(f"Average content score: {recommendations['content_score'].mean():.4f}")
-            
-            if 'collab_score' in recommendations.columns:
-                logger.info(f"Average collaborative score: {recommendations['collab_score'].mean():.4f}")
+    def analyze_queue(self, track_ids=None, track_names=None):
+        """Analyze transition quality in a queue"""
+        if not self.is_trained:
+            logger.error("Model not trained. Please train the model first.")
+            return None
+        
+        # Handle track names if provided
+        if track_ids is None and track_names is not None:
+            track_ids = []
+            for name in track_names:
+                # Try to find track by name
+                track_idx = self.content_recommender._find_track_index(track_name=name)
+                if track_idx is not None:
+                    track_ids.append(self.tracks_df.iloc[track_idx]['id'])
+        
+        if not track_ids or len(track_ids) < 2:
+            logger.warning("Need at least 2 valid track IDs for queue analysis")
+            return None
+        
+        # Use transition model to analyze the queue
+        return self.transition_model.analyze_transitions(track_ids)
+    
+    def recommend_queue(self, seed_tracks, n_total=10):
+        """Generate an optimized queue starting from seed tracks"""
+        if not self.is_trained:
+            logger.error("Model not trained. Please train the model first.")
+            return []
+        
+        # Get recommendations using content model
+        queue = self.content_recommender.recommend_queue(seed_tracks, n_total)
+        
+        # Optimize the queue
+        optimized_queue = self.optimize_queue(queue)
+        
+        return optimized_queue

@@ -3,27 +3,43 @@ import time
 import logging
 import pandas as pd
 import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
-from tqdm import tqdm
+import numpy as np
+from spotipy.oauth2 import SpotifyOAuth
+import webbrowser
 from config.config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, RAW_DATA_DIR
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
+
+# Cập nhật Redirect URI để khớp với ứng dụng Gradio
+SPOTIFY_REDIRECT_URI = "http://127.0.0.1:7860/callback"
 
 class SpotifyDataFetcher:
     """Class to fetch data from Spotify API"""
     
-    def __init__(self):
-        """Initialize Spotify API client"""
+    def __init__(self, client_id=None, client_secret=None):
+        """Initialize Spotify API client with simplified authentication"""
+        self.sp = None
+
+        # Use provided credentials or environment variables
+        client_id = client_id or SPOTIFY_CLIENT_ID
+        client_secret = client_secret or SPOTIFY_CLIENT_SECRET
+
         try:
-            self.sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-                client_id=SPOTIFY_CLIENT_ID,
-                client_secret=SPOTIFY_CLIENT_SECRET
-            ))
-            logger.info("Spotify API client initialized successfully")
+            # Sử dụng Client Credentials Flow thay vì OAuth
+            auth_manager = spotipy.oauth2.SpotifyClientCredentials(
+                client_id=client_id,
+                client_secret=client_secret
+            )
+
+            self.sp = spotipy.Spotify(auth_manager=auth_manager)
+            # Test kết nối
+            self.sp.search(q="test", limit=1)
+            logger.info("Kết nối Spotify API thành công")
         except Exception as e:
-            logger.error(f"Failed to initialize Spotify API client: {e}")
+            logger.error(f"Lỗi kết nối Spotify API: {e}")
             raise
-    
+
     def _extract_track_data(self, track):
         """Extract relevant data from a track object"""
         try:
@@ -116,127 +132,116 @@ class SpotifyDataFetcher:
             logger.warning("No tracks fetched")
             return pd.DataFrame()
     
-    def fetch_audio_features(self, track_ids, save_path=None):
-        """
-        Lấy đặc trưng âm thanh từ Spotify API
+    def fetch_audio_features(self, track_ids):
+        """Fetch audio features for a list of track IDs with improved error handling"""
+        if not track_ids:
+            return pd.DataFrame()
         
-        Args:
-            track_ids (list): Danh sách ID bài hát
-            save_path (str, optional): Đường dẫn file để lưu
+        # Đảm bảo track_ids là list
+        if isinstance(track_ids, pd.Series):
+            track_ids = track_ids.tolist()
+        
+        max_retries = 5
+        retry_count = 0
+        backoff_time = 1
+        
+        while retry_count < max_retries:
+            try:
+                # Lấy audio features
+                audio_features = self.sp.audio_features(track_ids)
+                
+                # Kiểm tra kết quả có hợp lệ không
+                if not audio_features or all(af is None for af in audio_features):
+                    logger.warning("Không tìm thấy audio features cho các track ID đã cho")
+                    return pd.DataFrame()
+                
+                # Loại bỏ các kết quả None
+                audio_features = [af for af in audio_features if af is not None]
+                
+                # Chuyển đổi sang DataFrame
+                audio_df = pd.DataFrame(audio_features)
+                
+                return audio_df
+                
+            except Exception as e:
+                retry_count += 1
+                error_message = str(e)
+                
+                if "rate limiting" in error_message.lower() or "429" in error_message:
+                    logger.warning(f"Rate limit exceeded. Retrying in {backoff_time} seconds...")
+                elif "403" in error_message:
+                    logger.warning(f"Forbidden error (403). Client credentials may be expired. Retrying...")
+                    # Thử khởi tạo lại client
+                    try:
+                        auth_manager = spotipy.oauth2.SpotifyClientCredentials(
+                            client_id=SPOTIFY_CLIENT_ID,
+                            client_secret=SPOTIFY_CLIENT_SECRET
+                        )
+                        self.sp = spotipy.Spotify(auth_manager=auth_manager)
+                    except Exception as auth_error:
+                        logger.error(f"Failed to reinitialize Spotify client: {auth_error}")
+                else:
+                    logger.warning(f"Error fetching audio features: {e}. Retrying {retry_count}/{max_retries}...")
+                
+                if retry_count < max_retries:
+                    time.sleep(backoff_time)
+                    backoff_time *= 2  # Tăng thời gian chờ theo cấp số nhân
+                else:
+                    logger.error(f"Failed after {max_retries} retries: {e}")
+                    return pd.DataFrame()
             
-        Returns:
-            pd.DataFrame: DataFrame chứa đặc trưng âm thanh
-        """
-        audio_features = []
+    def _reinitialize_client(self):
+        """Reinitialize Spotify client to refresh token"""
+        try:
+            logger.info("Reinitializing Spotify client...")
+            self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+                client_id=SPOTIFY_CLIENT_ID,
+                client_secret=SPOTIFY_CLIENT_SECRET,
+                redirect_uri=SPOTIFY_REDIRECT_URI,
+                scope="user-library-read user-top-read",
+                cache_path=".spotifycache"
+            ))
+            # Test connection
+            self.sp.search(q="test", limit=1)
+            logger.info("Spotify client reinitialized successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to reinitialize Spotify client: {e}")
+            return False
+
+    def fetch_artist_genres(self, artist_ids, save_path=None, batch_size=20):
+        """Fetches genres for a list of artist IDs"""
+        if not artist_ids:
+            logger.warning("No artist IDs provided to fetch_artist_genres")
+            return pd.DataFrame()
         
-        # Xử lý theo lô 100 bài hát (giới hạn API)
-        for i in tqdm(range(0, len(track_ids), 100), desc="Fetching audio features"):
-            batch = track_ids[i:i+100]
-            
-            # Thêm xử lý retry
-            max_retries = 3
-            retries = 0
-            
-            while retries < max_retries:
-                try:
-                    # Gọi API để lấy đặc trưng âm thanh cho lô
-                    features_batch = self.sp.audio_features(batch)
-                    
-                    # Thêm vào danh sách kết quả
-                    for feature in features_batch:
-                        if feature:  # Kiểm tra không None
-                            audio_features.append(feature)
-                    
-                    # Thành công, thoát vòng lặp retry
-                    break
-                except Exception as e:
-                    retries += 1
-                    logger.warning(f"Error fetching audio features (retry {retries}/{max_retries}): {e}")
-                    if retries >= max_retries:
-                        logger.error(f"Failed to fetch audio features after {max_retries} retries")
-                        break
-                    time.sleep(2 ** retries)  # Exponential backoff
-            
-            # Rate limiting - tránh bị hạn chế API
-            time.sleep(1)
+        all_genres = []
         
-        # Chuyển thành DataFrame
-        features_df = pd.DataFrame(audio_features)
+        # Process in smaller batches
+        for i in range(0, len(artist_ids), batch_size):
+            batch = artist_ids[i:i+batch_size]
+            try:
+                artists_data = self.sp.artists(batch)['artists']
+                
+                for artist in artists_data:
+                    if artist and 'id' in artist and 'genres' in artist:
+                        all_genres.append({
+                            'artist_id': artist['id'],
+                            'genres': ','.join(artist['genres']) if artist['genres'] else ''
+                        })
+                
+                # Wait to avoid rate limiting
+                time.sleep(1)
+            except Exception as e:
+                logger.warning(f"Error fetching artist data (batch {i//batch_size + 1}): {e}")
         
-        # Lọc chỉ giữ các cột cần thiết
-        if not features_df.empty:
-            features_df = features_df[[
-                'id', 'danceability', 'energy', 'key', 'loudness', 'mode', 
-                'speechiness', 'acousticness', 'instrumentalness', 
-                'liveness', 'valence', 'tempo', 'time_signature'
-            ]]
+        genres_df = pd.DataFrame(all_genres)
         
-        # Lưu vào file nếu có đường dẫn
-        if save_path and not features_df.empty:
-            features_df.to_csv(save_path, index=False)
-            logger.info(f"Saved audio features for {len(features_df)} tracks to {save_path}")
+        if save_path and not genres_df.empty:
+            genres_df.to_csv(save_path, index=False)
+            logger.info(f"Saved {len(genres_df)} artist genres to {save_path}")
         
-        return features_df
-    
-    def fetch_artist_genres(self, artist_ids, save_path=None):
-        """
-        Lấy thông tin thể loại của nghệ sĩ từ Spotify API
-        
-        Args:
-            artist_ids (list): Danh sách ID nghệ sĩ
-            save_path (str, optional): Đường dẫn file để lưu
-            
-        Returns:
-            pd.DataFrame: DataFrame chứa thông tin thể loại
-        """
-        artists_data = []
-        
-        # Xử lý theo lô 50 nghệ sĩ (giới hạn API)
-        for i in tqdm(range(0, len(artist_ids), 50), desc="Fetching artist genres"):
-            batch = artist_ids[i:i+50]
-            
-            # Thêm xử lý retry
-            max_retries = 3
-            retries = 0
-            
-            while retries < max_retries:
-                try:
-                    # Gọi API để lấy thông tin nghệ sĩ
-                    artists_batch = self.sp.artists(batch)
-                    
-                    # Thêm vào danh sách kết quả
-                    for artist in artists_batch['artists']:
-                        if artist:  # Kiểm tra không None
-                            artists_data.append({
-                                'artist_id': artist['id'],
-                                'artist_name': artist['name'],
-                                'artist_popularity': artist['popularity'],
-                                'artist_followers': artist['followers']['total'],
-                                'artist_genres': '|'.join(artist['genres'])
-                            })
-                    
-                    # Thành công, thoát vòng lặp retry
-                    break
-                except Exception as e:
-                    retries += 1
-                    logger.warning(f"Error fetching artist data (retry {retries}/{max_retries}): {e}")
-                    if retries >= max_retries:
-                        logger.error(f"Failed to fetch artist data after {max_retries} retries")
-                        break
-                    time.sleep(2 ** retries)  # Exponential backoff
-            
-            # Rate limiting - tránh bị hạn chế API
-            time.sleep(1)
-        
-        # Chuyển thành DataFrame
-        artists_df = pd.DataFrame(artists_data)
-        
-        # Lưu vào file nếu có đường dẫn
-        if save_path and not artists_df.empty:
-            artists_df.to_csv(save_path, index=False)
-            logger.info(f"Saved genre data for {len(artists_df)} artists to {save_path}")
-        
-        return artists_df
+        return genres_df
 
 # Hàm cấp cao để lấy dữ liệu ban đầu
 def fetch_initial_dataset(tracks_per_query=50):

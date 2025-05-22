@@ -29,6 +29,30 @@ pip install -r requirements.txt
 
 3. Đăng ký và lấy API keys từ [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)
 
+## Thiết lập Spotify API Credentials
+
+Để sử dụng hệ thống đề xuất âm nhạc này, bạn cần có thông tin xác thực từ Spotify API. Hãy làm theo các bước sau:
+
+### Bước 1: Tạo file .env
+Tạo một file có tên `.env` trong thư mục gốc của dự án.
+
+### Bước 2: Thêm thông tin xác thực 
+Thêm các dòng sau vào file `.env`:
+
+Thay thế `your_client_id_here` và `your_client_secret_here` bằng thông tin xác thực thực tế của bạn.
+
+### Bước 3: Lưu file và khởi động lại ứng dụng
+Sau khi lưu file, hãy khởi động lại ứng dụng để các thay đổi có hiệu lực.
+
+### Cách lấy thông tin xác thực Spotify API:
+
+1. Truy cập [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)
+2. Đăng nhập với tài khoản Spotify của bạn
+3. Tạo một ứng dụng mới
+4. Sao chép Client ID và Client Secret từ trang chi tiết ứng dụng
+
+> **Lưu ý**: Không chia sẻ thông tin xác thực Spotify API của bạn với người khác hoặc đưa chúng lên GitHub.
+
 ## Sử dụng
 
 ### Cài đặt hệ thống
