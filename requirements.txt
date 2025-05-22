@@ -28,3 +28,6 @@ unicodedata2>=14.0.0
 
 # Logging and progress tracking
 colorlog>=6.0.0
+
+# Data formatting for pretty tables
+tabulate>=0.8.9
