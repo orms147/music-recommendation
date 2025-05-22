@@ -22,21 +22,18 @@ class DataProcessor:
         """Load raw data from files"""
         # Đọc dữ liệu bài hát
         tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks.csv')
-        if os.path.exists(tracks_path):
+        enriched_path = os.path.join(RAW_DATA_DIR, 'enriched_tracks.csv')
+        
+        # Ưu tiên dùng enriched_tracks nếu có
+        if os.path.exists(enriched_path):
+            self.tracks_df = pd.read_csv(enriched_path)
+            logger.info(f"Loaded {len(self.tracks_df)} enriched tracks from {enriched_path}")
+        elif os.path.exists(tracks_path):
             self.tracks_df = pd.read_csv(tracks_path)
             logger.info(f"Loaded {len(self.tracks_df)} tracks from {tracks_path}")
         else:
-            logger.warning(f"Track data file not found: {tracks_path}")
+            logger.warning(f"Track data files not found")
             self.tracks_df = pd.DataFrame()
-        
-        # Đọc đặc trưng âm thanh
-        audio_path = os.path.join(RAW_DATA_DIR, 'audio_features.csv')
-        if os.path.exists(audio_path):
-            self.audio_features_df = pd.read_csv(audio_path)
-            logger.info(f"Loaded audio features for {len(self.audio_features_df)} tracks")
-        else:
-            logger.warning(f"Audio features file not found: {audio_path}")
-            self.audio_features_df = pd.DataFrame()
         
         # Đọc thông tin thể loại nghệ sĩ
         genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
@@ -81,38 +78,76 @@ class DataProcessor:
         
         return True
     
-    def merge_audio_features(self):
-        """Merge audio features to tracks data"""
+    def create_synthetic_audio_features(self):
+        """Create synthetic audio features when real ones aren't available"""
         if self.tracks_df is None or self.tracks_df.empty:
-            logger.error("No tracks data to merge audio features with")
+            logger.error("No tracks data to create synthetic features for")
             return False
         
-        if self.audio_features_df is None or self.audio_features_df.empty:
-            logger.warning("No audio features to merge")
-            return False
+        logger.info("Creating synthetic audio features")
         
-        # Lưu số lượng ban đầu
-        initial_count = len(self.tracks_df)
+        # Define the audio features and their default values
+        audio_features = {
+            'danceability': 0.5,
+            'energy': 0.5,
+            'key': 0,
+            'loudness': -10,
+            'mode': 1,
+            'speechiness': 0.1,
+            'acousticness': 0.5,
+            'instrumentalness': 0.01,
+            'liveness': 0.1,
+            'valence': 0.5,
+            'tempo': 120,
+            'time_signature': 4
+        }
         
-        # Kết hợp với dữ liệu bài hát
-        self.tracks_df = self.tracks_df.merge(self.audio_features_df, on='id', how='left')
+        # Check which features are already present
+        existing_features = [f for f in audio_features.keys() if f in self.tracks_df.columns]
+        missing_features = [f for f in audio_features.keys() if f not in self.tracks_df.columns]
         
-        # Điền missing values cho các đặc trưng âm thanh
-        audio_features = [
-            'danceability', 'energy', 'key', 'loudness', 'mode', 
-            'speechiness', 'acousticness', 'instrumentalness', 
-            'liveness', 'valence', 'tempo', 'time_signature'
-        ]
+        if existing_features:
+            logger.info(f"Found existing audio features: {', '.join(existing_features)}")
         
-        for feature in audio_features:
-            if feature in self.tracks_df.columns:
-                # Sử dụng giá trị trung bình cho dữ liệu bị thiếu
-                mean_value = self.tracks_df[feature].mean()
-                self.tracks_df[feature] = self.tracks_df[feature].fillna(mean_value)
-        
-        # Log kết quả
-        merged_count = len(self.tracks_df)
-        logger.info(f"Merged audio features: {initial_count} tracks -> {merged_count} tracks")
+        if missing_features:
+            logger.info(f"Adding synthetic audio features: {', '.join(missing_features)}")
+            
+            # Add missing features with default values
+            for feature in missing_features:
+                # Set default value
+                self.tracks_df[feature] = audio_features[feature]
+                
+                # Modulate based on available data to make synthetic features more realistic
+                if feature == 'energy' and 'popularity' in self.tracks_df.columns:
+                    # Higher popularity often correlates with higher energy
+                    self.tracks_df[feature] = 0.3 + (self.tracks_df['popularity'] / 100) * 0.5
+                
+                elif feature == 'danceability' and 'duration_ms' in self.tracks_df.columns:
+                    # Shorter songs tend to be more danceable
+                    avg_duration = 3.5 * 60 * 1000  # 3.5 minutes in ms
+                    self.tracks_df[feature] = 0.5 + 0.3 * (1 - np.minimum(self.tracks_df['duration_ms'] / avg_duration, 1))
+                
+                elif feature == 'valence' and 'name' in self.tracks_df.columns:
+                    # Try to infer mood from track name
+                    happy_keywords = ['happy', 'joy', 'fun', 'party', 'love', 'dance']
+                    sad_keywords = ['sad', 'blue', 'cry', 'tear', 'alone', 'broken', 'lost']
+                    
+                    # Default valence
+                    self.tracks_df[feature] = 0.5
+                    
+                    # Check for happy keywords
+                    for keyword in happy_keywords:
+                        self.tracks_df.loc[
+                            self.tracks_df['name'].str.contains(keyword, case=False, na=False),
+                            feature
+                        ] = np.maximum(self.tracks_df[feature], 0.7)
+                    
+                    # Check for sad keywords
+                    for keyword in sad_keywords:
+                        self.tracks_df.loc[
+                            self.tracks_df['name'].str.contains(keyword, case=False, na=False),
+                            feature
+                        ] = np.minimum(self.tracks_df[feature], 0.3)
         
         return True
     
@@ -134,10 +169,15 @@ class DataProcessor:
         # Lưu số lượng ban đầu
         initial_count = len(self.tracks_df)
         
+        # Đổi tên cột genres để tránh xung đột
+        if 'genres' in self.artist_genres_df.columns:
+            self.artist_genres_df = self.artist_genres_df.rename(columns={'genres': 'artist_genres'})
+        
         # Kết hợp với dữ liệu bài hát
-        genres_columns = ['artist_id', 'genres']
-        if 'artist_popularity' in self.artist_genres_df.columns:
-            genres_columns.append('artist_popularity')
+        genres_columns = ['artist_id', 'artist_genres']
+        for col in ['artist_popularity', 'artist_followers']:
+            if col in self.artist_genres_df.columns:
+                genres_columns.append(col)
         
         merged_df = self.tracks_df.merge(
             self.artist_genres_df[genres_columns], 
@@ -148,9 +188,12 @@ class DataProcessor:
         
         # Điền missing values
         merged_df['artist_genres'] = merged_df['artist_genres'].fillna('')
-        merged_df['artist_popularity'] = merged_df['artist_popularity'].fillna(
-            merged_df['popularity'] if 'popularity' in merged_df.columns else 50
-        )
+        if 'artist_popularity' in merged_df.columns:
+            merged_df['artist_popularity'] = merged_df['artist_popularity'].fillna(
+                merged_df['popularity'] if 'popularity' in merged_df.columns else 50
+            )
+        if 'artist_followers' in merged_df.columns:
+            merged_df['artist_followers'] = merged_df['artist_followers'].fillna(0)
         
         self.tracks_df = merged_df
         
@@ -169,6 +212,11 @@ class DataProcessor:
         if 'release_date' not in self.tracks_df.columns:
             logger.warning("No release_date column in tracks data")
             return False
+        
+        # Nếu đã có release_year, bỏ qua
+        if 'release_year' in self.tracks_df.columns:
+            logger.info("Release year already exists in data")
+            return True
         
         # Extract year from release_date
         def extract_year(date_str):
@@ -193,7 +241,11 @@ class DataProcessor:
             return datetime.now().year
         
         self.tracks_df['release_year'] = self.tracks_df['release_date'].apply(extract_year)
-        logger.info("Extracted release year from release dates")
+        
+        # Tính decade
+        self.tracks_df['decade'] = (self.tracks_df['release_year'] // 10) * 10
+        
+        logger.info("Extracted release year and decade from release dates")
         
         return True
     
@@ -206,9 +258,6 @@ class DataProcessor:
         if 'artist_genres' not in self.tracks_df.columns:
             logger.warning("No artist_genres column in tracks data")
             return False
-        
-        # Extract main genres
-        top_genres = []
         
         # Extract all unique genres
         all_genres = []
@@ -227,12 +276,112 @@ class DataProcessor:
         
         # Create binary features for top genres
         for genre in top_genres:
-            col_name = f'genre_{genre.replace(" ", "_")}'
+            col_name = f'genre_{genre.replace(" ", "_").lower()}'
             self.tracks_df[col_name] = self.tracks_df['artist_genres'].apply(
-                lambda x: 1 if genre in str(x).split('|') else 0
+                lambda x: 1 if pd.notna(x) and genre in str(x).split('|') else 0
             )
         
         logger.info(f"Created {top_n} genre binary features")
+        
+        return True
+    
+    def create_language_features(self):
+        """Create features for detecting language and region"""
+        if self.tracks_df is None or self.tracks_df.empty:
+            logger.error("No tracks data to create language features")
+            return False
+        
+        # Check if name column exists
+        if 'name' not in self.tracks_df.columns:
+            logger.warning("No name column in tracks data for language detection")
+            return False
+        
+        # Detect Vietnamese content
+        viet_chars = ['Đ', 'đ', 'Ư', 'ư', 'Ơ', 'ơ', 'Ă', 'ă', 'Â', 'â', 'Ê', 'ê', 'Ô', 'ô']
+        viet_words = ['việt', 'tình', 'yêu', 'anh', 'em', 'trời', 'đất', 'người']
+        
+        # Check track name for Vietnamese
+        viet_pattern = '|'.join(viet_chars + viet_words)
+        self.tracks_df['is_vietnamese'] = (
+            self.tracks_df['name'].str.contains(viet_pattern, case=False, na=False) | 
+            self.tracks_df['artist'].str.contains(viet_pattern, case=False, na=False)
+        ).astype(int)
+        
+        # Detect other languages/regions
+        language_patterns = {
+            'is_korean': ['korea', 'k-pop', 'kpop', 'seoul', '(', ')', '아', '이', '으'],
+            'is_japanese': ['japan', 'j-pop', 'jpop', 'tokyo', 'anime', '月', '日', 'の', 'は'],
+            'is_spanish': ['latino', 'spanish', 'españa', 'méxico', 'cuba', 'latin']
+        }
+        
+        for lang, patterns in language_patterns.items():
+            pattern = '|'.join(patterns)
+            self.tracks_df[lang] = (
+                self.tracks_df['name'].str.contains(pattern, case=False, na=False) | 
+                self.tracks_df['artist'].str.contains(pattern, case=False, na=False) |
+                (self.tracks_df['artist_genres'].str.contains(pattern, case=False, na=False) 
+                 if 'artist_genres' in self.tracks_df.columns else False)
+            ).astype(int)
+        
+        logger.info("Created language and region detection features")
+        
+        return True
+    
+    def create_additional_features(self):
+        """Create additional features from metadata"""
+        if self.tracks_df is None or self.tracks_df.empty:
+            logger.error("No tracks data to create additional features")
+            return False
+        
+        # 1. Calculate duration in minutes
+        if 'duration_ms' in self.tracks_df.columns and 'duration_min' not in self.tracks_df.columns:
+            self.tracks_df['duration_min'] = self.tracks_df['duration_ms'] / 60000
+            
+            # Create duration category
+            self.tracks_df['duration_category'] = pd.cut(
+                self.tracks_df['duration_min'],
+                bins=[0, 2, 3, 4, 6, 100],
+                labels=['very_short', 'short', 'medium', 'long', 'very_long']
+            )
+        
+        # 2. Create popularity categories
+        if 'popularity' in self.tracks_df.columns and 'popularity_category' not in self.tracks_df.columns:
+            self.tracks_df['popularity_category'] = pd.cut(
+                self.tracks_df['popularity'],
+                bins=[0, 20, 40, 60, 80, 100],
+                labels=['very_low', 'low', 'medium', 'high', 'very_high']
+            )
+        
+        # 3. Extract features from track name
+        if 'name' in self.tracks_df.columns:
+            # Has feature/collab indicated by 'feat.', 'ft.', 'with'
+            has_collab_pattern = r'(feat\.?|ft\.?|with)\s'
+            self.tracks_df['has_collab'] = self.tracks_df['name'].str.contains(
+                has_collab_pattern, case=False, regex=True, na=False
+            ).astype(int)
+            
+            # Is a remix/edit
+            self.tracks_df['is_remix'] = self.tracks_df['name'].str.contains(
+                r'(remix|edit|version|mix|dub|remaster)', case=False, na=False
+            ).astype(int)
+            
+            # Length of track name (can indicate complexity)
+            self.tracks_df['name_length'] = self.tracks_df['name'].str.len()
+        
+        # 4. Create artist frequency features
+        if 'artist' in self.tracks_df.columns:
+            # Count frequency of each artist
+            artist_counts = self.tracks_df['artist'].value_counts()
+            
+            # Map counts back to tracks
+            self.tracks_df['artist_frequency'] = self.tracks_df['artist'].map(artist_counts)
+            
+            # Normalize to 0-1
+            max_freq = self.tracks_df['artist_frequency'].max()
+            if max_freq > 0:
+                self.tracks_df['artist_frequency_norm'] = self.tracks_df['artist_frequency'] / max_freq
+        
+        logger.info("Created additional metadata-based features")
         
         return True
     
@@ -242,12 +391,20 @@ class DataProcessor:
             logger.error("No tracks data to normalize")
             return False
         
-        # Các đặc trưng số cần chuẩn hóa
+        # Các đặc trưng số cần chuẩn hóa (bao gồm cả đặc trưng từ metadata)
         numeric_features = [
-            'popularity', 'duration_ms', 'danceability', 'energy', 
-            'loudness', 'speechiness', 'acousticness', 'instrumentalness',
-            'liveness', 'valence', 'tempo'
+            'popularity', 'duration_ms', 'duration_min',
+            'artist_popularity', 'artist_frequency', 'release_year',
+            'name_length', 'artist_followers'
         ]
+        
+        # Thêm đặc trưng audio nếu có
+        audio_features = [
+            'danceability', 'energy', 'loudness', 'speechiness', 
+            'acousticness', 'instrumentalness', 'liveness', 'valence', 'tempo'
+        ]
+        
+        numeric_features.extend([f for f in audio_features if f in self.tracks_df.columns])
         
         # Lọc các đặc trưng có trong DataFrame
         features_to_normalize = [f for f in numeric_features if f in self.tracks_df.columns]
@@ -258,6 +415,13 @@ class DataProcessor:
         
         # Sử dụng MinMaxScaler để chuẩn hóa về khoảng [0,1]
         scaler = MinMaxScaler()
+        
+        # Tiền xử lý - thay thế giá trị NaN bằng trung bình
+        for feature in features_to_normalize:
+            if self.tracks_df[feature].isna().any():
+                self.tracks_df[feature] = self.tracks_df[feature].fillna(self.tracks_df[feature].mean())
+        
+        # Chuẩn hóa
         self.tracks_df[features_to_normalize] = scaler.fit_transform(self.tracks_df[features_to_normalize])
         
         logger.info(f"Normalized {len(features_to_normalize)} features to range [0,1]")
@@ -282,6 +446,9 @@ class DataProcessor:
         user_data = []
         
         for user_id in range(1, num_users + 1):
+            # Tạo sở thích người dùng giả lập
+            # Mỗi người dùng thích một số thể loại và nghệ sĩ cụ thể
+            
             # Lựa chọn nghệ sĩ yêu thích cho mỗi người dùng
             if 'artist' in self.tracks_df.columns:
                 favorite_artists = np.random.choice(
@@ -346,41 +513,49 @@ class DataProcessor:
         return True
     
     def process_all(self):
-        """Process all data"""
+        """Process all data with focus on metadata"""
         # Tạo thư mục processed nếu chưa tồn tại
         os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
         
-        # 1. Clean tracks data
+        # 1. Load data
+        self.load_data()
+        
+        # 2. Clean tracks data
         self.clean_tracks_data()
         
-        # 2. Merge audio features
-        self.merge_audio_features()
+        # 3. Create synthetic audio features (since real ones aren't available)
+        self.create_synthetic_audio_features()
         
-        # 3. Merge artist genres
+        # 4. Merge artist genres
         self.merge_artist_genres()
         
-        # 4. Extract release year
+        # 5. Extract release year
         self.extract_release_year()
         
-        # 5. Create genre features
+        # 6. Create genre features
         self.create_genre_features()
         
-        # 6. Normalize features
+        # 7. Create language features
+        self.create_language_features()
+        
+        # 8. Create additional metadata features
+        self.create_additional_features()
+        
+        # 9. Normalize features
         self.normalize_features()
         
-        # 7. Lưu dữ liệu đã xử lý
+        # 10. Lưu dữ liệu đã xử lý
         track_features_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
         self.tracks_df.to_csv(track_features_path, index=False)
         logger.info(f"Processed tracks data saved to {track_features_path}")
         
-        # 8. Create user-item matrix
+        # 11. Create user-item matrix
         user_matrix_path = os.path.join(PROCESSED_DATA_DIR, 'user_item_matrix.csv')
         self.create_user_item_matrix(output_path=user_matrix_path)
         
         logger.info("All data processing complete")
-        return True
+        return self.tracks_df
 
 if __name__ == "__main__":
     processor = DataProcessor()
-    processor.load_data()
     processor.process_all()

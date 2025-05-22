@@ -4,18 +4,16 @@ import logging
 import pandas as pd
 import spotipy
 import numpy as np
-from spotipy.oauth2 import SpotifyOAuth
-import webbrowser
-from config.config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, RAW_DATA_DIR
+from config.config import (
+    SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, RAW_DATA_DIR,
+    DEFAULT_TRACKS_PER_QUERY, LARGE_DATASET_BATCH_SIZE, LARGE_DATASET_SAVE_INTERVAL
+)
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
-# Cập nhật Redirect URI để khớp với ứng dụng Gradio
-SPOTIFY_REDIRECT_URI = "http://127.0.0.1:7860/callback"
-
 class SpotifyDataFetcher:
-    """Class to fetch data from Spotify API"""
+    """Class to fetch data from Spotify API focusing on metadata only"""
     
     def __init__(self, client_id=None, client_secret=None):
         """Initialize Spotify API client with simplified authentication"""
@@ -26,7 +24,7 @@ class SpotifyDataFetcher:
         client_secret = client_secret or SPOTIFY_CLIENT_SECRET
 
         try:
-            # Sử dụng Client Credentials Flow thay vì OAuth
+            # Sử dụng Client Credentials Flow
             auth_manager = spotipy.oauth2.SpotifyClientCredentials(
                 client_id=client_id,
                 client_secret=client_secret
@@ -41,18 +39,41 @@ class SpotifyDataFetcher:
             raise
 
     def _extract_track_data(self, track):
-        """Extract relevant data from a track object"""
+        """Extract relevant metadata from a track object"""
         try:
+            # Thêm nhiều thông tin hơn từ metadata có sẵn
+            album_type = track['album']['album_type'] if 'album' in track else None
+            total_tracks = track['album']['total_tracks'] if 'album' in track else None
+            
+            # Lấy thông tin tất cả nghệ sĩ, không chỉ nghệ sĩ đầu tiên
+            artists = ", ".join([artist['name'] for artist in track['artists']]) if track['artists'] else "Unknown"
+            
+            # Trích xuất năm phát hành
+            release_date = track['album']['release_date'] if 'album' in track else None
+            release_year = None
+            if release_date:
+                try:
+                    # Xử lý cả ngày đầy đủ và chỉ năm
+                    if len(release_date) >= 4:
+                        release_year = int(release_date[:4])
+                except:
+                    pass
+            
             return {
                 'id': track['id'],
                 'name': track['name'],
-                'artist': track['artists'][0]['name'] if track['artists'] else "Unknown",
+                'artist': artists,
                 'artist_id': track['artists'][0]['id'] if track['artists'] else None,
                 'album': track['album']['name'] if 'album' in track else None,
+                'album_type': album_type,
+                'total_tracks': total_tracks,
                 'popularity': track['popularity'],
                 'duration_ms': track['duration_ms'],
                 'explicit': int(track['explicit']),
-                'release_date': track['album']['release_date'] if 'album' in track else None
+                'release_date': release_date,
+                'release_year': release_year,
+                'track_number': track.get('track_number'),
+                'disc_number': track.get('disc_number')
             }
         except Exception as e:
             logger.warning(f"Error extracting track data: {e}")
@@ -66,7 +87,9 @@ class SpotifyDataFetcher:
             tracks_fetched = 0
             offset = 0
             max_retries = 3
-            
+            # Spotify API chỉ cho phép offset + limit <= 1000
+            tracks_per_query = min(tracks_per_query, 1000)
+
             while tracks_fetched < tracks_per_query:
                 retries = 0
                 while retries < max_retries:
@@ -132,69 +155,6 @@ class SpotifyDataFetcher:
             logger.warning("No tracks fetched")
             return pd.DataFrame()
     
-    def fetch_audio_features(self, track_ids, save_path=None):
-        """Fetch audio features for a list of track IDs with improved error handling"""
-        if not track_ids:
-            return pd.DataFrame()
-        
-        # Đảm bảo track_ids là list
-        if isinstance(track_ids, pd.Series):
-            track_ids = track_ids.tolist()
-        
-        max_retries = 5
-        retry_count = 0
-        backoff_time = 1
-        
-        while retry_count < max_retries:
-            try:
-                # Lấy audio features
-                audio_features = self.sp.audio_features(track_ids)
-                
-                # Kiểm tra kết quả có hợp lệ không
-                if not audio_features or all(af is None for af in audio_features):
-                    logger.warning("Không tìm thấy audio features cho các track ID đã cho")
-                    return pd.DataFrame()
-                
-                # Loại bỏ các kết quả None
-                audio_features = [af for af in audio_features if af is not None]
-                
-                # Chuyển đổi sang DataFrame
-                audio_df = pd.DataFrame(audio_features)
-                
-                # Lưu vào file nếu có đường dẫn
-                if save_path and not audio_df.empty:
-                    audio_df.to_csv(save_path, index=False)
-                    logger.info(f"Đã lưu {len(audio_df)} audio features vào {save_path}")
-                
-                return audio_df
-                
-            except Exception as e:
-                retry_count += 1
-                error_message = str(e)
-                
-                if "rate limiting" in error_message.lower() or "429" in error_message:
-                    logger.warning(f"Rate limit exceeded. Retrying in {backoff_time} seconds...")
-                elif "403" in error_message:
-                    logger.warning(f"Forbidden error (403). Client credentials may be expired. Retrying...")
-                    # Thử khởi tạo lại client
-                    try:
-                        auth_manager = spotipy.oauth2.SpotifyClientCredentials(
-                            client_id=SPOTIFY_CLIENT_ID,
-                            client_secret=SPOTIFY_CLIENT_SECRET
-                        )
-                        self.sp = spotipy.Spotify(auth_manager=auth_manager)
-                    except Exception as auth_error:
-                        logger.error(f"Failed to reinitialize Spotify client: {auth_error}")
-                else:
-                    logger.warning(f"Error fetching audio features: {e}. Retrying {retry_count}/{max_retries}...")
-                
-                if retry_count < max_retries:
-                    time.sleep(backoff_time)
-                    backoff_time *= 2  # Tăng thời gian chờ theo cấp số nhân
-                else:
-                    logger.error(f"Failed after {max_retries} retries: {e}")
-                    return pd.DataFrame()
-            
     def _reinitialize_client(self):
         """Reinitialize Spotify client to refresh token"""
         try:
@@ -230,7 +190,9 @@ class SpotifyDataFetcher:
                     if artist and 'id' in artist and 'genres' in artist:
                         all_genres.append({
                             'artist_id': artist['id'],
-                            'genres': ','.join(artist['genres']) if artist['genres'] else ''
+                            'genres': '|'.join(artist['genres']) if artist['genres'] else '',
+                            'artist_popularity': artist.get('popularity', 0),
+                            'artist_followers': artist.get('followers', {}).get('total', 0) if 'followers' in artist else 0,
                         })
                 
                 # Wait to avoid rate limiting
@@ -246,19 +208,80 @@ class SpotifyDataFetcher:
         
         return genres_df
 
+    def enrich_track_data(self, tracks_df, save_path=None):
+        """Tự động tạo đặc trưng bổ sung từ dữ liệu bài hát hiện có"""
+        if tracks_df is None or tracks_df.empty:
+            logger.warning("No tracks data to enrich")
+            return tracks_df
+            
+        enriched_df = tracks_df.copy()
+        
+        # 1. Trích xuất năm phát hành nếu chưa có
+        if 'release_year' not in enriched_df.columns and 'release_date' in enriched_df.columns:
+            enriched_df['release_year'] = enriched_df['release_date'].apply(
+                lambda x: int(str(x)[:4]) if pd.notna(x) and len(str(x)) >= 4 else None
+            )
+        
+        # 2. Trích xuất thập kỷ
+        if 'release_year' in enriched_df.columns:
+            enriched_df['decade'] = enriched_df['release_year'].apply(
+                lambda x: (x // 10) * 10 if pd.notna(x) else None
+            )
+        
+        # 3. Tính độ dài bài hát (phút)
+        if 'duration_ms' in enriched_df.columns:
+            enriched_df['duration_min'] = enriched_df['duration_ms'] / 60000
+            
+            # Phân loại độ dài bài hát
+            enriched_df['duration_category'] = pd.cut(
+                enriched_df['duration_min'], 
+                bins=[0, 2, 4, 6, 10, 100],
+                labels=['very_short', 'short', 'medium', 'long', 'very_long']
+            )
+        
+        # 4. Phân loại độ phổ biến
+        if 'popularity' in enriched_df.columns:
+            enriched_df['popularity_category'] = pd.cut(
+                enriched_df['popularity'],
+                bins=[0, 20, 40, 60, 80, 100],
+                labels=['very_low', 'low', 'medium', 'high', 'very_high']
+            )
+        
+        # 5. Phát hiện ngôn ngữ (dựa trên các ký tự đặc biệt)
+        enriched_df['has_vietnamese'] = enriched_df['name'].str.contains(
+            '|'.join(['Vietnam', 'việt', 'Đ', 'Ư', 'Ơ', 'ă', 'â', 'ê', 'ô', 'ơ', 'ư']), 
+            case=False, regex=True, na=False
+        ).astype(int)
+        
+        if save_path:
+            enriched_df.to_csv(save_path, index=False)
+            logger.info(f"Saved {len(enriched_df)} enriched tracks to {save_path}")
+            
+        return enriched_df
+
 # Hàm cấp cao để lấy dữ liệu ban đầu
-def fetch_initial_dataset(tracks_per_query=50):
-    """Fetch an initial dataset for the recommendation system"""
+def fetch_initial_dataset(tracks_per_query=DEFAULT_TRACKS_PER_QUERY):
+    """Fetch an initial dataset focusing on metadata only"""
     # Create fetcher
     fetcher = SpotifyDataFetcher()
     
     # Define diverse search queries
     queries = [
-        'pop 2023', 'rock 2023', 'hip hop 2023', 'rap 2023', 
-        'electronic 2023', 'dance 2023', 'r&b 2023', 'indie 2023', 
-        'classical', 'jazz', 'country', 'folk', 'metal', 'blues',
-        'vietnamese music', 'vpop', 'vietnamese songs', 
-        'top hits', 'billboard hot 100', 'new releases'
+        'pop 2023', 'pop 2022', 'pop 2021', 'pop 2020', 'pop 2019', 'pop 2018',
+        'rock 2023', 'rock 2022', 'rock 2021', 'rock classics', 
+        'hip hop 2023', 'hip hop 2022', 'rap 2023', 'rap 2022', 'rap 2021',
+        'electronic 2023', 'electronic 2022', 'dance 2023', 'dance 2022',
+        'r&b 2023', 'r&b 2022', 'indie 2023', 'indie 2022', 
+        'classical piano', 'classical violin', 'classical orchestra',
+        'jazz 2023', 'jazz classics', 'country 2023', 'country 2022',
+        'folk 2023', 'metal 2023', 'blues classics',
+        'vietnamese music 2023', 'vpop 2023', 'vpop 2022', 'vietnamese songs 2023',
+        'korean pop', 'k-pop 2023', 'k-pop 2022', 'j-pop 2023', 'japanese music',
+        'top hits 2023', 'top hits 2022', 'top hits 2021', 'top hits 2020',
+        'billboard hot 100', 'viral hits', 'new releases',
+        'acoustic 2023', 'lo-fi beats', 'ambient music', 'study music',
+        'latin music', 'spanish hits', 'reggaeton', 'afrobeats',
+        'bollywood hits', 'edm 2023', 'house music', 'techno 2023'
     ]
     
     # 1. Fetch basic track data
@@ -269,20 +292,105 @@ def fetch_initial_dataset(tracks_per_query=50):
         logger.error("Failed to fetch tracks data")
         return None
     
-    # 2. Fetch audio features
-    if not tracks_df.empty:
-        track_ids = tracks_df['id'].tolist()
-        audio_features_path = os.path.join(RAW_DATA_DIR, 'audio_features.csv')
-        fetcher.fetch_audio_features(track_ids, save_path=audio_features_path)
-    
-    # 3. Fetch artist genres
+    # 2. Fetch artist genres
     if 'artist_id' in tracks_df.columns:
         artist_ids = tracks_df['artist_id'].dropna().unique().tolist()
         artist_genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
         fetcher.fetch_artist_genres(artist_ids, save_path=artist_genres_path)
     
+    # 3. Enrich track data with additional features
+    enriched_tracks_path = os.path.join(RAW_DATA_DIR, 'enriched_tracks.csv')
+    fetcher.enrich_track_data(tracks_df, save_path=enriched_tracks_path)
+    
     logger.info("Initial dataset fetched successfully")
     return tracks_df
+
+def fetch_large_dataset(target_size=100000, batch_size=LARGE_DATASET_BATCH_SIZE, save_interval=LARGE_DATASET_SAVE_INTERVAL):
+    """Thu thập một tập dữ liệu rất lớn theo lô"""
+    fetcher = SpotifyDataFetcher()
+    
+    # Tạo các truy vấn đa dạng bao gồm nhiều thể loại và năm
+    base_genres = ['pop', 'rock', 'hip hop', 'rap', 'electronic', 'dance', 'r&b', 
+                  'indie', 'classical', 'jazz', 'country', 'folk', 'metal', 'blues',
+                  'vietnamese', 'vpop', 'korean', 'k-pop', 'japanese', 'j-pop',
+                  'latin', 'spanish', 'reggaeton', 'bollywood', 'afrobeats']
+    
+    years = range(2010, 2024)
+    
+    # Tạo kết hợp của thể loại và năm
+    queries = []
+    for genre in base_genres:
+        for year in years:
+            queries.append(f"{genre} {year}")
+    
+    # Thêm các truy vấn cụ thể bổ sung
+    additional_queries = [
+        'top hits', 'billboard hot 100', 'new releases', 'chart toppers',
+        'grammy winners', 'viral hits', 'trending music', 'spotify viral',
+        'tiktok songs', 'youtube hits', 'movie soundtrack', 'tv soundtrack'
+    ]
+    queries.extend(additional_queries)
+    
+    tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks_large.csv')
+    artist_genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres_large.csv')
+    
+    all_tracks_df = pd.DataFrame()
+    processed_artists = set()
+    
+    # Xử lý truy vấn theo lô cho đến khi đạt được kích thước mục tiêu
+    import random
+    random.shuffle(queries)  # Ngẫu nhiên hóa thứ tự truy vấn
+    
+    for i in range(0, len(queries), batch_size):
+        if len(all_tracks_df) >= target_size:
+            break
+            
+        batch_queries = queries[i:i+batch_size]
+        logger.info(f"Đang xử lý lô {i//batch_size + 1}: {len(batch_queries)} truy vấn")
+        
+        # Lấy bài hát cho lô này
+        batch_df = fetcher.fetch_tracks_by_search(
+            batch_queries, 
+            tracks_per_query=50,  # Giữ ở mức khiêm tốn mỗi truy vấn để tránh giới hạn tỷ lệ
+            save_path=None  # Không lưu kết quả trung gian
+        )
+        
+        # Kết hợp với dữ liệu hiện có
+        if not batch_df.empty:
+            all_tracks_df = pd.concat([all_tracks_df, batch_df]).drop_duplicates(subset=['id'])
+            
+            # Xử lý thể loại nghệ sĩ theo lô
+            new_artist_ids = batch_df['artist_id'].dropna().unique().tolist()
+            new_artist_ids = [aid for aid in new_artist_ids if aid not in processed_artists]
+            
+            if new_artist_ids:
+                fetcher.fetch_artist_genres(new_artist_ids, save_path=None)
+                processed_artists.update(new_artist_ids)
+            
+            # Lưu theo khoảng thời gian
+            if len(all_tracks_df) % save_interval < 100:
+                all_tracks_df.to_csv(tracks_path, index=False)
+                logger.info(f"Tiến độ: {len(all_tracks_df)}/{target_size} bài hát đã thu thập")
+                
+                # Cho API nghỉ ngơi
+                time.sleep(5)
+                fetcher._reinitialize_client()  # Làm mới token
+    
+    # Lưu cuối cùng
+    all_tracks_df.to_csv(tracks_path, index=False)
+    
+    # Lấy tất cả ID nghệ sĩ duy nhất
+    all_artist_ids = all_tracks_df['artist_id'].dropna().unique().tolist()
+    
+    # Lấy và lưu tất cả thể loại nghệ sĩ
+    all_genres_df = fetcher.fetch_artist_genres(all_artist_ids, save_path=artist_genres_path)
+    
+    # Làm phong phú và lưu tập dữ liệu cuối cùng
+    enriched_tracks_path = os.path.join(RAW_DATA_DIR, 'enriched_tracks_large.csv')
+    enriched_df = fetcher.enrich_track_data(all_tracks_df, save_path=enriched_tracks_path)
+    
+    logger.info(f"Thu thập tập dữ liệu lớn hoàn tất: {len(enriched_df)} bài hát")
+    return enriched_df
 
 if __name__ == "__main__":
     # Run if script is executed directly

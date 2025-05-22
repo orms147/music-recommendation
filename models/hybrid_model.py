@@ -5,24 +5,20 @@ import os
 from datetime import datetime
 from models.base_model import BaseRecommender
 from models.content_model import ContentBasedRecommender
-from models.transition_model import TransitionModel
-from config.config import CONTENT_WEIGHT, COLLABORATIVE_WEIGHT, SEQUENCE_WEIGHT
+from config.config import CONTENT_WEIGHT
 
 logger = logging.getLogger(__name__)
 
-class HybridRecommender(BaseRecommender):
-    """Hybrid recommendation model combining content-based and transition-based approaches"""
+class MetadataRecommender(BaseRecommender):
+    """Simplified recommendation model based primarily on metadata"""
     
     def __init__(self):
-        super().__init__(name="HybridRecommender")
+        super().__init__(name="MetadataRecommender")
         self.content_recommender = ContentBasedRecommender()
-        self.transition_model = TransitionModel()
-        self.content_weight = CONTENT_WEIGHT
-        self.transition_weight = SEQUENCE_WEIGHT
         self.tracks_df = None
     
-    def train(self, tracks_df, user_item_matrix=None, user_sequences=None):
-        """Train all component models"""
+    def train(self, tracks_df, user_item_matrix=None):
+        """Train model components"""
         start_time = datetime.now()
         
         # Save tracks_df for use during recommendation
@@ -32,177 +28,46 @@ class HybridRecommender(BaseRecommender):
         logger.info("Training content-based recommender...")
         self.content_recommender.train(tracks_df)
         
-        # Train transition model
-        logger.info("Training transition model...")
-        self.transition_model.train(tracks_df)
-        
         self.train_time = datetime.now() - start_time
-        logger.info(f"Hybrid model trained in {self.train_time.total_seconds():.2f} seconds")
-        logger.info(f"Weights: Content={self.content_weight:.2f}, "
-                   f"Transition={self.transition_weight:.2f}")
+        logger.info(f"Metadata model trained in {self.train_time.total_seconds():.2f} seconds")
         
         self.is_trained = True
         return True
     
-    def recommend(self, track_name=None, artist=None, user_id=None, n_recommendations=10):
+    def recommend(self, track_name=None, artist=None, n_recommendations=10):
         """Generate track recommendations"""
         if not self.is_trained:
             logger.error("Model not trained. Please train the model first.")
             return pd.DataFrame()
         
         n_recommendations = min(n_recommendations, len(self.tracks_df) - 1) if self.tracks_df is not None else n_recommendations
-        all_recommendations = []
-        weights = []
         
         # Content-based recommendations
-        if track_name is not None and self.content_weight > 0:
+        if track_name is not None:
             try:
-                content_recs = self.content_recommender.recommend(
+                recommendations = self.content_recommender.recommend(
                     track_name=track_name, 
                     artist=artist, 
-                    n_recommendations=n_recommendations*2
+                    n_recommendations=n_recommendations
                 )
-                if not content_recs.empty:
-                    all_recommendations.append(content_recs)
-                    weights.append(self.content_weight)
+                
+                if not recommendations.empty:
+                    return recommendations
             except Exception as e:
                 logger.error(f"Error generating content-based recommendations: {e}")
         
-        # If no recommendations, return fallback
-        if not all_recommendations:
-            logger.warning("No recommendations were generated")
-            # Return random recommendations as fallback
-            if hasattr(self, 'tracks_df') and self.tracks_df is not None:
-                sample_size = min(n_recommendations, len(self.tracks_df))
-                random_tracks = self.tracks_df.sample(sample_size)
-                random_tracks['weighted_score'] = 0.5  # Medium confidence
-                random_tracks['source'] = 'fallback'
-                return random_tracks[['id', 'name', 'artist', 'weighted_score', 'source']]
-            else:
-                return pd.DataFrame()
-        
-        # Merge and rank recommendations
-        return self._merge_recommendations(all_recommendations, weights, n_recommendations)
-    
-    def _merge_recommendations(self, all_recommendations, weights, n_recommendations):
-        """Merge recommendations from different sources with weighted scoring"""
-        if not all_recommendations:
-            logger.warning("No recommendations to merge")
-            # Return empty DataFrame with correct columns
-            return pd.DataFrame(columns=['id', 'name', 'artist', 'weighted_score', 'source'])
-        
-        # Process each recommendation set
-        for i, recommendations in enumerate(all_recommendations):
-            # Add weight column
-            recommendations['weight'] = weights[i]
-            
-            # Find score column (e.g., content_score, collab_score)
-            score_cols = [col for col in recommendations.columns if col.endswith('_score')]
-            if score_cols:
-                score_col = score_cols[0]
-                # Calculate weighted score
-                recommendations['weighted_score'] = recommendations[score_col] * weights[i]
-                # Set source
-                recommendations['source'] = score_col.split('_')[0]
-            else:
-                # Default values if no score column found
-                recommendations['weighted_score'] = weights[i] * 0.5
-                recommendations['source'] = 'unknown'
-        
-        # Combine all recommendations
-        combined = pd.concat(all_recommendations)
-        
-        # Sort by weighted score
-        combined = combined.sort_values('weighted_score', ascending=False)
-        
-        # Remove duplicates
-        combined = combined.drop_duplicates(subset=['id'])
-        
-        # Get top recommendations
-        result = combined.head(n_recommendations)
-        
-        # Ensure name and artist columns exist
+        # Fallback to random recommendations if nothing found
+        logger.warning("No recommendations were generated, using fallback")
         if hasattr(self, 'tracks_df') and self.tracks_df is not None:
-            if 'name' not in result.columns or 'artist' not in result.columns:
-                # Handle if ID column has different name
-                if 'id' not in result.columns and 'track_id' in result.columns:
-                    result = result.rename(columns={'track_id': 'id'})
-                
-                # Merge with tracks_df to get names and artists
-                result = result.merge(
-                    self.tracks_df[['id', 'name', 'artist']],
-                    on='id',
-                    how='left'
-                )
-        
-        # Default values for missing columns
-        if 'name' not in result.columns:
-            result['name'] = 'Unknown'
-        if 'artist' not in result.columns:
-            result['artist'] = 'Unknown'
-        
-        return result
-    
-    def optimize_queue(self, track_ids=None, track_names=None, start_fixed=True, end_fixed=False):
-        """Optimize a queue of tracks for smooth transitions"""
-        if not self.is_trained:
-            logger.error("Model not trained. Please train the model first.")
-            return track_ids if track_ids else []
-        
-        # Handle track names if provided
-        if track_ids is None and track_names is not None:
-            track_ids = []
-            for name in track_names:
-                # Try to find track by name
-                track_idx = self.content_recommender._find_track_index(track_name=name)
-                if track_idx is not None:
-                    track_ids.append(self.tracks_df.iloc[track_idx]['id'])
-        
-        if not track_ids:
-            logger.warning("No valid track IDs for queue optimization")
-            return []
-        
-        # Use transition model to optimize the queue
-        return self.transition_model.optimize_queue(track_ids, start_fixed, end_fixed)
-    
-    def analyze_queue(self, track_ids=None, track_names=None):
-        """Analyze transition quality in a queue"""
-        if not self.is_trained:
-            logger.error("Model not trained. Please train the model first.")
-            return None
-        
-        # Handle track names if provided
-        if track_ids is None and track_names is not None:
-            track_ids = []
-            for name in track_names:
-                # Try to find track by name
-                track_idx = self.content_recommender._find_track_index(track_name=name)
-                if track_idx is not None:
-                    track_ids.append(self.tracks_df.iloc[track_idx]['id'])
-        
-        if not track_ids or len(track_ids) < 2:
-            logger.warning("Need at least 2 valid track IDs for queue analysis")
-            return None
-        
-        # Use transition model to analyze the queue
-        return self.transition_model.analyze_transitions(track_ids)
-    
-    def recommend_queue(self, seed_tracks, n_total=10):
-        """Generate an optimized queue starting from seed tracks"""
-        if not self.is_trained:
-            logger.error("Model not trained. Please train the model first.")
-            return []
-        
-        # Get recommendations using content model
-        queue = self.content_recommender.recommend_queue(seed_tracks, n_total)
-        
-        # Optimize the queue
-        optimized_queue = self.optimize_queue(queue)
-        
-        return optimized_queue
+            sample_size = min(n_recommendations, len(self.tracks_df))
+            random_tracks = self.tracks_df.sample(sample_size)
+            random_tracks['content_score'] = 0.5  # Medium confidence
+            return random_tracks[['id', 'name', 'artist', 'content_score']]
+        else:
+            return pd.DataFrame()
     
     def generate_playlist_from_seed(self, seed_track, seed_artist="", n_recommendations=10):
-        """Generate a playlist from a seed track with transition analysis"""
+        """Generate a playlist from a seed track"""
         try:
             # Tìm kiếm bài hát ban đầu
             track_idx = self.content_recommender._find_track_index(track_name=seed_track, artist=seed_artist)
@@ -214,7 +79,7 @@ class HybridRecommender(BaseRecommender):
             seed_id = self.tracks_df.iloc[track_idx]['id']
             
             # Tạo queue với số lượng bài hát đề xuất
-            track_ids = self.recommend_queue([seed_id], n_recommendations)
+            track_ids = self.content_recommender.recommend_queue([seed_id], n_recommendations)
             
             if not track_ids:
                 return None, None
@@ -223,13 +88,114 @@ class HybridRecommender(BaseRecommender):
             queue = self.tracks_df[self.tracks_df['id'].isin(track_ids)].copy()
             
             # Đảm bảo thứ tự trong queue
-            queue['order'] = queue['id'].apply(lambda x: track_ids.index(x))
+            queue['order'] = queue['id'].apply(lambda x: track_ids.index(x) if x in track_ids else 999)
             queue = queue.sort_values('order').drop('order', axis=1)
             
-            # Tạo phân tích chuyển tiếp
-            analysis = self.analyze_queue(track_ids)
+            # Tạo phân tích - Thay thế bằng thông tin về nghệ sĩ và thể loại
+            analysis = self._analyze_artist_genres(queue)
             
             return queue, analysis
         except Exception as e:
             logger.error(f"Error generating playlist: {e}")
             return None, None
+            
+    def _analyze_artist_genres(self, playlist_df):
+        """Tạo phân tích về phân bố thể loại và nghệ sĩ trong playlist"""
+        analysis = []
+        
+        # Kiểm tra nếu playlist rỗng
+        if playlist_df is None or playlist_df.empty or len(playlist_df) < 2:
+            return pd.DataFrame()
+            
+        # Tính phân bố nghệ sĩ
+        artist_counts = playlist_df['artist'].value_counts()
+        total_tracks = len(playlist_df)
+        
+        # Xây dựng thông tin transition giữa các bài hát
+        for i in range(len(playlist_df) - 1):
+            current = playlist_df.iloc[i]
+            next_track = playlist_df.iloc[i+1]
+            
+            # Xác định chất lượng transition dựa trên tính đa dạng
+            quality = "Good"
+            
+            # Nếu cùng nghệ sĩ - đánh giá trung bình
+            if current['artist'] == next_track['artist']:
+                quality = "Fair"
+                
+            # Nếu quá nhiều bài từ cùng nghệ sĩ trong playlist - đánh giá thấp
+            if artist_counts[current['artist']] > total_tracks / 2:
+                quality = "Poor"
+                
+            # Nếu khác nghệ sĩ - đánh giá cao
+            if current['artist'] != next_track['artist']:
+                quality = "Excellent"
+                
+            # Tính điểm transition dựa trên metadata
+            transition_score = 0.7  # Điểm mặc định
+            
+            # Tăng điểm nếu có tính đa dạng về nghệ sĩ
+            if current['artist'] != next_track['artist']:
+                transition_score += 0.2
+                
+            # Điều chỉnh điểm dựa trên chất lượng
+            if quality == "Excellent":
+                transition_score = min(transition_score + 0.2, 1.0)
+            elif quality == "Poor":
+                transition_score = max(transition_score - 0.3, 0.0)
+            
+            # Thêm vào kết quả
+            from_track = f"{current['name']} - {current['artist']}"
+            to_track = f"{next_track['name']} - {next_track['artist']}"
+            
+            analysis.append({
+                'from_track': from_track,
+                'to_track': to_track,
+                'transition_score': transition_score,
+                'quality': quality
+            })
+            
+        return pd.DataFrame(analysis)
+    
+    def discover_by_genre(self, genre, n_recommendations=10):
+        """Khám phá bài hát theo thể loại"""
+        if not self.is_trained:
+            logger.error("Model not trained. Please train the model first.")
+            return pd.DataFrame()
+            
+        # Kiểm tra nếu có cột thể loại
+        genre_col = None
+        for col in self.tracks_df.columns:
+            if f'genre_{genre.lower().replace(" ", "_")}' == col:
+                genre_col = col
+                break
+        
+        # Nếu có cột thể loại, lọc theo giá trị
+        if genre_col is not None:
+            filtered = self.tracks_df[self.tracks_df[genre_col] > 0]
+        else:
+            # Tìm thể loại trong cột artist_genres nếu có
+            if 'artist_genres' in self.tracks_df.columns:
+                genre_keyword = genre.lower()
+                filtered = self.tracks_df[self.tracks_df['artist_genres'].str.contains(
+                    genre_keyword, case=False, na=False)]
+            else:
+                # Tìm kiếm trong tên bài hát và nghệ sĩ
+                filtered = self.tracks_df[
+                    self.tracks_df['name'].str.contains(genre, case=False, na=False) |
+                    self.tracks_df['artist'].str.contains(genre, case=False, na=False)
+                ]
+        
+        if filtered.empty:
+            logger.warning(f"No tracks found for genre: {genre}")
+            return pd.DataFrame()
+            
+        # Sắp xếp theo độ phổ biến
+        if 'popularity' in filtered.columns:
+            filtered = filtered.sort_values('popularity', ascending=False)
+            
+        # Lấy số lượng khuyến nghị
+        result = filtered.head(n_recommendations)
+        result['content_score'] = 1.0  # Điểm cao vì khớp chính xác thể loại
+        
+        return result[['id', 'name', 'artist', 'content_score']]

@@ -1,53 +1,62 @@
 import os
 from pathlib import Path
-import logging
+from dotenv import load_dotenv
 
-# Đường dẫn thư mục
-BASE_DIR = Path(__file__).parent.parent.absolute()
-RAW_DATA_DIR = os.path.join(BASE_DIR, 'data', 'raw')
-PROCESSED_DATA_DIR = os.path.join(BASE_DIR, 'data', 'processed')
-MODELS_DIR = os.path.join(BASE_DIR, 'models')
+# Load environment variables
+env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
-# Đảm bảo các thư mục tồn tại
+# Spotify API
+SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
+SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
+
+# Directories
+ROOT_DIR = Path(__file__).parent.parent
+DATA_DIR = os.path.join(ROOT_DIR, 'data')
+RAW_DATA_DIR = os.path.join(DATA_DIR, 'raw')
+PROCESSED_DATA_DIR = os.path.join(DATA_DIR, 'processed')
+MODELS_DIR = os.path.join(ROOT_DIR, 'models', 'saved')
+
+# Ensure directories exist
 os.makedirs(RAW_DATA_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-# Cấu hình Spotify API
-# Đọc từ môi trường hoặc sử dụng giá trị mặc định cho môi trường dev
-SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID', '')
-SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET', '')
+# Model weights
+CONTENT_WEIGHT = 1.0
+COLLABORATIVE_WEIGHT = 0.0  # Không sử dụng collaborative filtering
+SEQUENCE_WEIGHT = 0.0  # Không sử dụng sequence/transition model
 
-# Function to check credentials are set
-def check_spotify_credentials():
-    """Check if Spotify credentials are set and valid"""
-    if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
-        logging.error("SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET not set in environment")
-        return False
-    return True
-
-# API configuration
-API_RATE_LIMIT = 0.5  # seconds between API calls
-API_MAX_RETRIES = 5   # maximum number of retries for API calls
-API_BATCH_SIZE = 50   # items per batch for API calls
-
-# Cấu hình trọng số cho mô hình kết hợp
-CONTENT_WEIGHT = 0.7  # Content-based recommendation weight
-COLLABORATIVE_WEIGHT = 0.0  # Not using collaborative filtering
-SEQUENCE_WEIGHT = 0.3  # Transition-based recommendation weight
-
-# Danh sách đặc trưng cho mô hình content-based
+# Content features từ metadata
 CONTENT_FEATURES = [
     # Đặc trưng cơ bản
-    'popularity', 'duration_ms', 'explicit', 'release_year',
+    'popularity', 'explicit', 'release_year', 'decade',
+    'duration_min', 'duration_category', 'popularity_category',
+    'artist_frequency', 'artist_popularity',
     
-    # Đặc trưng âm thanh
-    'danceability', 'energy', 'loudness', 'speechiness', 
-    'acousticness', 'instrumentalness', 'liveness', 'valence', 'tempo'
+    # Đặc trưng ngôn ngữ và văn hóa
+    'is_vietnamese', 'is_korean', 'is_japanese', 'is_spanish',
+    
+    # Đặc trưng bài hát
+    'has_collab', 'is_remix',
+    
+    # Đặc trưng thể loại
+    'genre_pop', 'genre_rock', 'genre_hip_hop', 'genre_rap',
+    'genre_electronic', 'genre_dance', 'genre_latin',
+    'genre_r&b', 'genre_indie', 'genre_classical',
 ]
 
-# Fallback mode - if True, system will try to work even with missing data
-FALLBACK_MODE = True
+# System settings
+TRACKS_PER_QUERY = 30  # Số lượng bài hát thu thập cho mỗi query
+MAX_RECOMMENDATIONS = 20  # Số lượng khuyến nghị tối đa
 
-# Model configuration
-MODEL_PATH = os.path.join(MODELS_DIR, 'hybrid_recommender.pkl')
+# Cài đặt thu thập dữ liệu
+DEFAULT_TRACKS_PER_QUERY = 250  # Số lượng bài hát mặc định cho mỗi truy vấn
+MAX_TRACKS_PER_QUERY = 1500     # Giới hạn tối đa số bài hát mỗi truy vấn
+MIN_TRACKS_PER_QUERY = 5       # Giới hạn tối thiểu số bài hát mỗi truy vấn
+TRACKS_QUERY_STEP = 5          # Bước nhảy cho thanh trượt
+
+# Cài đặt cho bộ dữ liệu lớn
+LARGE_DATASET_DEFAULT_SIZE = 50000  # Kích thước mặc định cho tập dữ liệu lớn
+LARGE_DATASET_BATCH_SIZE = 250      # Số lượng truy vấn mỗi lô
+LARGE_DATASET_SAVE_INTERVAL = 2500  # Lưu sau mỗi bao nhiêu bài hát

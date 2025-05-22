@@ -1,51 +1,552 @@
-artist_id,genres
-5e4Dhzv426EvQe3aDb64jL,country
-5HZtdKfC4xU0wvhEyYDWiY,"v-pop,vietnamese hip hop,vietnamese lo-fi,vietnam indie,vinahouse"
-3UVC7gRDvB44DLq56iF1r9,vocaloid
-6NF9Oa4ThQWCj6mogFSrVD,"v-pop,vietnamese lo-fi,vietnamese hip hop,vietnam indie"
-5WUlDfRSoLAfcVSX1WnrxN,
-1y28JlO6rDMUB5rkcA4RAh,"v-pop,vietnam indie,vietnamese hip hop"
-3JWanDWTtkHRjViiNylONv,
-5q4pPTzefHs5kUuBSQSHbJ,lo-fi beats
-4QC0ZIhtfKdj6Y8YdXoy8x,
-4tuJ0bMpJh08umKkEXKUI5,
-0u5ikKYYDO2XGyYjNGQRGf,"vietnam indie,v-pop"
-2RQXRUsr4IW1f3mKyKsy4B,
-7gRg6C2qgQ1F01k3sgyEVt,"anime,j-rock,j-pop"
-1oD9fKbb7qQ2nhn9JJC24F,"vietnam indie,v-pop,vietnamese hip hop"
-3ApUX1o6oSz321MMECyIYd,
-246dkjvS1zLTtiykXe5h60,
-0V2DfUrZvBuUReS1LFo5ZI,"vietnam indie,v-pop,vietnamese lo-fi,vietnamese hip hop"
-7BWNm2hXOL9wEuinNnWpxy,"vietnam indie,v-pop,vietnamese hip hop"
-1ZnuqrjIR4q8zhgriUYsSo,anime
-1BcjfrXV4Oe3fK0c8dnxFF,"v-pop,vietnamese bolero"
-3PhoLpVuITZKcymswpck5b,
-2I4xTYL2IlFVhB3NrYUd8W,freestyle
-6eXHRfK9Ad3IpMpSAqvcDf,"mexican hip hop,latin hip hop"
-1ALcjEvMc4tLpPPNifjjFD,
-008PpLcKUtVXle6JSwkq3I,"hindi hip hop,desi hip hop"
-1Jmkhzve9TuXHUUWGmpANw,"vietnamese hip hop,v-pop"
-0jxGPRjBD9ofybNRoB14dc,k-rap
-0wqus4nTxIoJvLZLwBt8Df,"vietnamese hip hop,v-pop,vietnam indie"
-0FnDCrmcQT8qz5TEsZIYw5,"j-rap,j-r&b"
-0bypMpAgjSZJaThtP1oqFV,
-1cPpd989kghzlZqfpP4KwL,"vietnamese hip hop,v-pop"
-5xY6E5PMZNtz9jDvxTRiGI,"vietnamese hip hop,v-pop"
-6vRzxK1ozI3LHvgmF7c4jF,
-74GISWxzZnC7FsWIkczYFy,
-6yOmbYsMqNFdaL7uUlmTDA,
-3tYJfCciy07wTBt2HpjCQw,chillstep
-3tuxyjTQrEDsF0pV0WbqyR,v-pop
-3EG7jJRApBO7i8o94Dw1Uh,electronica
-7qgorhDacy1FRz5HkAhDtu,
-180fUTOBitzZ8KzsVqjFcn,
-3ZBV0gUEnRaiAuadgsmXPl,
-7icbzqnPWc4RkZg4po32wT,"acid house,psytrance"
-5w5GmmycbK6p9OXux5sNnb,
-4vTxLr74trGJUi6QQAGOdP,vinahouse
-7FyOkfwL9KmBD0Fe4XGO7F,dembow
-40HDiLfKm0tXk2FxlJx6aO,
-7os1UVlIK50EAaP990Z8aE,vocaloid
-1HcAkAeL4xf02wzAnl7mIV,soca
-4JWt9oSSKxYYOayFDlJexl,
-41o2x1AJ6KzUiz6JxYtCtJ,"vietnam indie,v-pop,vietnamese lo-fi"
+artist_id,genres,artist_popularity,artist_followers
+5e4Dhzv426EvQe3aDb64jL,country,74,3281402
+5HZtdKfC4xU0wvhEyYDWiY,v-pop|vietnamese hip hop|vietnamese lo-fi|vietnam indie|vinahouse,68,2298573
+3UVC7gRDvB44DLq56iF1r9,vocaloid,22,965
+6NF9Oa4ThQWCj6mogFSrVD,v-pop|vietnamese lo-fi|vietnamese hip hop|vietnam indie,59,1622083
+5WUlDfRSoLAfcVSX1WnrxN,,86,29890567
+1y28JlO6rDMUB5rkcA4RAh,v-pop|vietnam indie|vietnamese hip hop,53,191785
+3JWanDWTtkHRjViiNylONv,,26,307
+5q4pPTzefHs5kUuBSQSHbJ,lo-fi beats,33,5811
+4QC0ZIhtfKdj6Y8YdXoy8x,,57,7929
+3e7awlrlDSwF3iM0WBjGMp,,75,12276990
+4AK6F7OLvEQ5QYCBNiQWHq,,86,39572681
+30eFAXoU2kTjJPf2cq80B8,v-pop|vietnamese hip hop|vietnam indie,59,454135
+5cj0lLjcoR7YOSnhnX0Po5,,87,33319520
+0dBcEvEklr1jx4uZuhFX5e,v-pop|vietnamese hip hop|vietnam indie,62,318933
+6zUWZmyi5MLOEynQ5wCI5f,v-pop|vietnamese hip hop|vietnam indie|vietnamese lo-fi|vinahouse,62,1152910
+57vWImR43h4CaDao012Ofp,,81,5974779
+3HD3V1nGFPwepBO7064Ij0,vietnamese hip hop|vietnamese lo-fi|v-pop|vietnam indie,54,156802
+5a2EaR3hamoenG9rDuVn8j,funk rock,73,7700838
+2aQnC3DbZB9GbauvhAw7ve,v-pop|vietnamese hip hop|vietnam indie,59,1563630
+41o2x1AJ6KzUiz6JxYtCtJ,vietnam indie|v-pop|vietnamese lo-fi,45,72166
+1m7V9rstnZ264nGJe9MDUq,,67,38113
+1Jmkhzve9TuXHUUWGmpANw,vietnamese hip hop|v-pop,65,557278
+1n9JKdEdLxrbgJiqz1WZFJ,v-pop|vinahouse|vietnamese lo-fi,55,356110
+2WzaAvm2bBCf4pEhyuDgCY,,73,4227777
+5zT1Ku9mzzl6RW5y4z0hUK,v-pop|vietnam indie|vietnamese hip hop,50,36239
+5y8tKLUfMvliMe8IKamR32,,84,3985994
+4fwuXg6XQHfdlOdmw36OHa,,66,1433962
+2Bwp23pD4UVsSkchHDZw4F,vietnamese hip hop|v-pop|vietnam indie,52,487851
+5M3ffmRiOX9Q8Y4jNeR5wu,v-pop|vietnam indie|vietnamese hip hop|vinahouse,57,623224
+0tBmmwc8j8zbJxISwdsvjA,v-pop|vietnam indie|vietnamese lo-fi,53,392566
+4tuJ0bMpJh08umKkEXKUI5,,88,5771011
+0lAWpj5szCSwM4rUMHYmrr,,79,10334808
+2RQXRUsr4IW1f3mKyKsy4B,,85,4102929
+7gRg6C2qgQ1F01k3sgyEVt,anime|j-rock|j-pop,60,662296
+3ApUX1o6oSz321MMECyIYd,,64,795899
+6XyY86QOPPrYVGvF9ch6wz,nu metal|rap metal|rock|alternative metal,90,30041409
+246dkjvS1zLTtiykXe5h60,,90,47006926
+47mIJdHORyRerp4os813jD,,80,2066454
+1ZnuqrjIR4q8zhgriUYsSo,anime,54,187384
+4gdC9UZoMCTxadKzTCNKis,,12,35
+3PhoLpVuITZKcymswpck5b,,84,14880666
+6XYPDozxzEi0iu380aAYnL,thai hip hop,54,455323
+3daM7asS0gCFvyLemNx2EE,power pop,57,451418
+1tPvAgAmMBoYCHl3zVHhvn,,24,61
+4r63FhuTkUYltbVAg5TQnk,,80,12660683
+3HXLY1sNXIxHfulrjPiRf5,,47,186366
+29cqzCUpFbHFEeNhfD7Tla,,13,9
+6MDME20pz9RveH9rEXvrOM,,77,5837996
+0L8ExT028jH3ddEcZwqJJ5,funk rock|alternative rock|rock,85,22526282
+70BYFdaZbEKbeauJ670ysI,post-grunge|alternative metal|rock|acoustic rock,74,4391343
+6Chzc8bFbzWJ2q4SgwG5uV,,27,2737
+7MhMgCo0Bl0Kukl93PZbYS,britpop|madchester|alternative rock,70,3761789
+4qVKiA168f8kE2zKINggT0,afro house,50,7310
+3yQygCog35F0KEGrDPcPsa,,13,9
+4o5CAOneBHnSPYP18eVHNK,,15,3527
+3YQKmKGau1PzlVlkL1iodx,,85,25396492
+6nf7iwR6AoROxfUKZWd1r6,power metal|melodic metal|symphonic metal|metal|heavy metal|speed metal|folk metal,47,120873
+7jdFEYD2LTYjfwxOdlVjmc,,72,1965970
+2VSHKHBTiXWplO8lxcnUC9,,62,659301
+2I4xTYL2IlFVhB3NrYUd8W,freestyle,32,21009
+6eXHRfK9Ad3IpMpSAqvcDf,mexican hip hop|latin hip hop,73,3251620
+1ALcjEvMc4tLpPPNifjjFD,,24,638
+008PpLcKUtVXle6JSwkq3I,hindi hip hop|desi hip hop,58,5024329
+0jxGPRjBD9ofybNRoB14dc,k-rap,29,5598
+0wqus4nTxIoJvLZLwBt8Df,vietnamese hip hop|v-pop|vietnam indie,49,149437
+0FnDCrmcQT8qz5TEsZIYw5,j-rap|j-r&b,62,330362
+5amUFfwnHC4qutA9pxFGbs,chinese hip hop|chinese r&b|c-pop|mandopop,39,8544
+1cPpd989kghzlZqfpP4KwL,vietnamese hip hop|v-pop,61,1959230
+0bypMpAgjSZJaThtP1oqFV,,40,48462
+2sF5nNXnrrsCPZlt8ZpyGd,rage rap,67,726353
+5dfZ5uSmzR7VQK0udbAVpf,v-pop|vinahouse|vietnamese hip hop,66,6757820
+5xY6E5PMZNtz9jDvxTRiGI,vietnamese hip hop|v-pop,67,300373
+6tcltBYoeWDm2P6NoawNIT,,44,94747
+3Wj34lTDJnPp70u4YCl4jz,vietnamese hip hop|v-pop|vietnam indie,49,167669
+0ZbgKh0FgPYeFP38nVaEGp,v-pop|vietnamese hip hop|vietnam indie,65,1012992
+3JWIaDWHJq11w1xPqJStEv,vietnamese hip hop|v-pop,51,151297
+6TITnFVRcl0AcZ4syE7Toe,vietnamese hip hop|v-pop|vietnam indie,63,1667892
+5A1leVsPksHSUrcjuly13N,,2,95
+23UOCFmQtFKvx2mFufMoJB,vietnamese hip hop|v-pop|vietnam indie,52,118165
+1zSv9qZANOWB4HRE8sxeTL,vietnamese hip hop|v-pop|vietnam indie,63,1202319
+6vRzxK1ozI3LHvgmF7c4jF,,17,2001
+74GISWxzZnC7FsWIkczYFy,,7,176
+6yOmbYsMqNFdaL7uUlmTDA,,5,237
+2rKtPYcwYmevNcaqzJOwvf,vietnamese hip hop|v-pop|vietnam indie,54,160922
+3tYJfCciy07wTBt2HpjCQw,chillstep,43,109033
+5CzyKbVKTa3PoejIdZSGGv,,14,248
+3EG7jJRApBO7i8o94Dw1Uh,electronica,39,182671
+7qgorhDacy1FRz5HkAhDtu,,52,249583
+180fUTOBitzZ8KzsVqjFcn,,7,69
+1UiwiBUiZQ4JkuSNnlSOmB,,6,946
+03EyXWemNEgYc16EqjnDAk,vinahouse,29,412
+3ZBV0gUEnRaiAuadgsmXPl,,17,6006
+157L8iTHgbdrKVxdQEXluh,,61,340495
+5w5GmmycbK6p9OXux5sNnb,,22,7113
+6Ue0BbbTOdBjcO4QZB5sio,v-pop|vietnam indie,45,3156
+7FyOkfwL9KmBD0Fe4XGO7F,dembow,39,99
+3tuxyjTQrEDsF0pV0WbqyR,v-pop,42,20639
+38sMetc66ave6OQSpl1BW3,big room,29,479
+40HDiLfKm0tXk2FxlJx6aO,,56,166320
+0NCnhl8kjlsN30Nn6hQV7i,bass music,0,3
+4QYhpE0EMCIX39qqdAPide,,0,45
+1feoGrmmD8QmNqtK2Gdwy8,,53,408567
+0piYfXrIl86hNaDZOhIABZ,bass music,4,113
+0TZKKZG6WHl2aVFPDtND82,vietnamese hip hop|v-pop|vinahouse,27,71453
+1UjXIZ9QfOoOoatRNwCF0u,breakbeat,0,4
+79a4DDvkxUJy73sCJqrC8q,,41,35073
+4fzrXBdIwhgk8dqWiBzhpx,vinahouse,29,709
+3cf8lN2hoLcagzb4mkhZRF,psytrance,0,5
+5Tat6kQnCUqmVtKiB7QU6F,,23,122
+39UtqfQIM0IUPSGX1MpEAt,,0,2
+6AelNJV2eBg9B3gxfvBNFF,,38,50282
+329HQjjxOGAXkAHKkkbdqv,drum and bass|jungle,2,270
+1MtEHfgLiPazbn8fZUVAHl,vinahouse|vietnamese lo-fi|v-pop,13,344
+2ppYn3eA2gFGr57VccN6rS,,5,46
+7wGnvmHuWqIhczXjh1PdtU,,34,11156
+7DSbFoeSH8Q0JahSwax20N,vinahouse,35,2625
+7wTkJ693mD4D1CkVrl1mwP,,28,4
+6JbqmE8gzN29E6hIJOa08z,,0,0
+34ESFFvfP5f465MC2V6E64,cloud rap,40,28676
+3gYaIiSfngpqMSEmREEXPv,,34,40
+7os1UVlIK50EAaP990Z8aE,vocaloid,47,54394
+1HcAkAeL4xf02wzAnl7mIV,soca,54,55415
+4JWt9oSSKxYYOayFDlJexl,,18,3177
+3C6wmSgnZuqxVQyBWujBsn,,55,115481
+5QbDgpkghCaWjJywjbJnoG,vinahouse|vietnamese lo-fi|v-pop|lo-fi,43,50379
+1Qp56T7n950O3EGMsSl81D,metal|hard rock,79,3592292
+08xn7sYY4KworP8Vc3GoiU,vinahouse|vietnamese lo-fi|v-pop|lo-fi,57,571529
+39eJFvfRccrkymEmChAPRK,,1,88
+4R3mugkUqCALXgkwSptTbg,v-pop|vietnamese hip hop|vinahouse,53,521451
+3HphLd0XiELTvIPYf55dYC,deep house|slap house,61,559987
+3h8Yh3GUF3Slpm7tb1Euk6,vinahouse,33,3931
+1W2pigH6UYwuTuFbwoSfVZ,v-pop|vietnamese hip hop,64,582720
+46njgd2Rq9tZc4ZjeQMgbh,album rock,59,842364
+7dn0rxwDJOMnEwDZv4eUdx,vinahouse,40,20198
+7x83XhcMbOTl1UdYsPTuZM,dark cabaret|singer-songwriter,60,1443586
+3efW4k0fha9Ksj7W2v4rTM,new age,32,35366
+6kWudkWjOad7NFYhvNfzG0,vietnamese hip hop|vinahouse|v-pop,30,3900
+3oGVQWQy7lgTMuTnKUZZNZ,anime|soundtrack,61,154897
+6JswibhIUtHuljUDaNbuKP,,23,236
+0spcNDKHmvQq0UpORm8zZN,,24,19613
+5sK9cYMRqNOdY9Og2DKAgs,vinahouse|v-pop,50,100160
+4y0wFJ5jmCUNRLZfsw1I7g,k-pop|c-pop,40,546810
+4mRbd3BbVFIV5pEOBri77R,vinahouse|v-pop|vietnamese lo-fi,40,16594
+12nEr6QOfSKkiTXjEp8tBB,deep house,58,91067
+1Vc9oJC8vSXfirygPAL2Du,v-pop|vietnamese hip hop|vinahouse,30,69857
+0gxyHStUsqpMadRV0Di1Qt,,66,1408589
+1K2HzMiZLKcDituNXYRG8P,bossa nova,24,615
+4phGZZrJZRo4ElhRtViYdl,soft pop|acoustic pop,74,7312525
+3YvAeXMfGnrj0gKdH7rGuz,vinahouse|v-pop,24,703
+2nmxgv9asWhQh4XgqfxK57,vinahouse|v-pop,43,3674
+3euFcFd5Dc7JAz6t7oKg7m,v-pop|vinahouse|vietnam indie|vietnamese lo-fi,53,11054
+4V2ZuYYkmNUpJVDrkp3oLh,rage rap,23,30911
+1Xyo4u8uXC1ZmMpatF05PJ,,96,105271597
+7lzordPuZEXxwt9aoVZYmG,,73,2297547
+30b9WulBM8sFuBo17nNq9c,k-pop|k-rap,74,3558940
+6vCnF48qqPHgVMBEvcbgkU,pinoy hip hop|pinoy r&b|opm,49,243729
+1QAJqy2dA3ihHBFIHRphZj,dream pop,86,15841391
+7i68fmsIERvgavI8Q1H09h,soundtrack,63,252219
+0Y5tJX1MQlPlqiwlOH1tJY,rap,93,38780845
+3diftVOq7aEIebXKkC34oR,v-pop|vietnamese hip hop|vietnam indie|vinahouse,66,1525597
+0pjLiK5qb4Zr0PWRNkdd2o,southern gospel|christian country|gospel|christian,52,277902
+0YkdsWWo0RAQtP1aEiozyS,,30,9653
+5Peky9rOMytKOvpiq5cJcT,chinese r&b|c-pop|chinese hip hop|mandopop,39,9222
+23Gbd21nBxC1kCtcG2Cd0C,v-pop|vietnam indie|city pop,48,88970
+1z4g3DjTBBZKhvAroFlhOM,k-pop,70,9518690
+6VSpS9nABDMDVGYQwl49t4,,28,5589
+4w4Iyllv9FAqkq5yNw04tN,arabic hip hop|moroccan rap,36,147554
+1WvNgEoB66jmHodcj15Zi9,vietnamese hip hop|v-pop|vinahouse|vietnam indie,59,1058214
+4b6YJa43oNQEoGWqilql4m,vietnamese hip hop|v-pop,14,441
+4yLgYK2B5nZjZMBiaLyLyK,,51,156514
+2tIP7SsRs7vjIcLrU85W8J,,81,6276593
+4fshEJAfGrhkxuTamxEImN,new wave,34,32930
+1vb1XqzyNMQ16BqbxRz5BV,dark trap|underground hip hop,52,596301
+6Y1m5hznF2CokCV8N79rrL,c-pop|mandopop,41,2712
+3q99FhugmuibswXhLK0N0K,,35,37076
+17hR0sYHpx7VYTMRfFUOmY,classical|classical piano|neoclassical,61,539175
+5XOFNBUv0d2HrBVyTcWCKi,finnish pop|finnish hip hop,47,13887
+3kbrbhnjLCObXwmOsqadXT,k-rock,35,12017
+0u5ikKYYDO2XGyYjNGQRGf,vietnam indie|v-pop,46,55665
+6CQ7EYVHudzCArbeXZYV4e,indie folk,39,7911
+6UwPoe3ZqpC4OUuKgIinVW,indie folk,17,3513
+5jTFNkoZebPnX90CbB3F2A,v-pop|vietnamese hip hop|vinahouse,55,989279
+7tAyZfxpYvcMi8xJEtwGjL,,24,14560
+1nQp0Yk9yxk2PJsXOtMR14,,58,48180
+1TdtsDVivxc6PpkQdNuXdR,vietnam indie|v-pop,52,90207
+401ikVSob52311M6Fwnunt,vietnamese hip hop|v-pop|vietnam indie,49,55411
+2hEZUJYO26jhMzfw0ZzrCj,,37,27792
+5w1g5MrRpY3zWraNx9HMXS,christian folk,49,17984
+24ICho4HWjIQITW7hS4ao4,indie folk,32,3767
+3eJkzc3PSoGAxivOq679pz,hindi indie|indian indie,24,2082
+0V2DfUrZvBuUReS1LFo5ZI,vietnam indie|v-pop|vietnamese lo-fi|vietnamese hip hop,58,896264
+5VgQ8fqAe1K3C7UQNAHCKt,,18,2312
+1oGhuPxh5IUrixh5a6XkKe,indie folk,13,683
+27RoKwun6jKycKbH2iYUFU,vietnam indie|v-pop,57,29611
+3lBb4DsNd7uLyDrKk0XGbL,indie folk,9,770
+11BozuxBoGgG4NtpvwJP15,indie folk,8,433
+57g2v7gJZepcwsuwssIfZs,v-pop|vietnam indie|vietnamese lo-fi,63,2486906
+4ZkICEILCKffUUFX9J88CY,indie folk,28,3712
+0Z1UskNOrRKYtaywcvdCYq,indie folk,31,2671
+15vQbVx84dPqYBWX2XK8kw,indie folk,35,2790
+68O2Dspw1EadQRzJiOoUC4,indie folk,6,734
+3gmhn3vGKwE48jxT1w7bHh,vietnam indie|v-pop,39,11434
+4XudVJyOISrXMkNvNFlysV,christian folk|indie folk,32,7447
+5KjGwF0TkKmKSC42Mtq2VV,indie folk,39,6877
+0TPskc1UooN3VHhPqZtDov,indie folk,7,1062
+2j3AXmye1FJXoGOXr6tufj,vietnam indie|v-pop|vietnamese hip hop,46,218231
+2QnZE9opYZPbFtfIuX3Djz,,25,1818
+0ac87lEVMlYRektAzRTZRp,indie folk,20,1153
+2gPsg80rQMmL5dKBC0yg2V,indie folk,25,1250
+0j3JsMUkjmRIqTi1xQ5dp0,,32,25130
+0s9oqVCJ2iXTqSUR5fcky5,vietnam indie|v-pop,42,29086
+2F7PtF4lRVIufJd6Sjud71,,48,164703
+4NJhFmfw43RLBLjQvxDuRS,classical|requiem|opera|classical piano|chamber music,77,5781041
+2VIZDPesAdDk0zppWuy70U,anime,51,21637
+5MQG067ASfGn0Cf1nE0S8g,phonk|brazilian phonk,60,136182
+5zCkKfOMcIx8ISU53JBPng,,47,23175
+3MKCzCnpzw3TjUYs2v7vDA,classical,70,1489467
+2uFAb0ANFkjlalOG5kQH60,dubstep,35,12488
+2wOqMjp9TyABvtHdOSOTUS,classical|classical piano|chamber music,73,5608620
+0mKgCBdahKi7AykSlNcmHP,,0,12
+459INk8vcC0ebEef82WjIK,classical piano|classical,67,912553
+7y97mc3bZRFXzT2szRM4L4,classical piano|classical,75,3498682
+1ZNA8vzdCn3mKSUSPkCkRJ,,41,5140
+4OihBPCQzR4GfbzqOY69Xm,,54,121574
+5aIqB5nVVvmFsvSdExz408,classical|classical piano,78,4700601
+5WIoytpqi3VWoFSHnl49in,classical,55,86670
+39FC9x5PaTNYHp5hwlaY4q,classical,55,494122
+5BvJzeQpmsdsFp4HGUYUEx,indie|baroque pop,66,2029055
+5EfRmAMpdmiA8NDoBxGYci,classical piano|classical,35,2479
+1tkiFVYWlbBbK6XfX8RGg6,breakbeat|miami bass|uk garage,6,325
+5PkDpzWMZR7Id1vldhF8Qk,brazilian jazz|bossa nova|exotica,51,58699
+3252lQrYqRgAFw2xXuNdVZ,,60,11187
+76VQKr4J9HvYVAPNw7IYT9,,16,18
+1Uff91EOsvd99rtAupatMP,classical|classical piano,70,1619324
+0A4IedzBw9tbZP4yVNDmgY,,15,285
+1JOQXgYdQV2yfrhewqx96o,opera|classical,63,707734
+3k3RY7kR8f0vp8Cq27P141,jazz house|jazz,67,770587
+6s1pCNXcbdtQJlsnM1hRIA,classical|chamber music,63,509837
+1Mxqyy3pSjf8kZZL4QVxS0,christmas|big band|adult standards|swing music|vocal jazz|jazz,78,8062634
+1XOKresOiQtBmduOEskf4s,french pop|space rock,15,8288
+3IIpbS5XHnLSdXTP4c1YN2,,68,468055
+1kFkuPkfE1z3STtqLNK5s1,,34,92992
+3gMaNLQm7D9MornNILzdSl,motown,72,4240005
+4v1dHYkbhZPWaAtzoZLv7J,,9,34
+0dVtlAIS7ELCtZN2r4W23x,,38,287
+4WilN7D6oYBujOrgJzMx1Z,,0,3
+5V1qsQHdXNm4ZEZHWvFnqQ,k-pop|k-rock,58,1392261
+3yKoHgjtyenCOIRaD2Gghu,jazz|bossa nova,69,273684
+68HFSFMCZzyRjkkm9bv5Vt,nu jazz|acid jazz|post-rock|jazz fusion,27,60729
+1GxkXlMwML1oSg5eLPiAz3,christmas,74,6836690
+2yCHwCR4w8pZyoSCyoQQfx,lo-fi|lo-fi beats,36,3532
+09hVIj6vWgoCDtT03h8ZCa,jazz rap|east coast hip hop|hip hop,68,2333656
+1hj6efFunktwXk8ocvrw5k,,20,267
+18eCkyTgJAxzinpbmJnY7p,jazz beats,37,25683
+1tlXhSxCYZVXx2ckrIckf3,,15,136
+1FvjvACFvko2Z91IvDljrx,jazz rap,57,665664
+6ye5C0aCtNApMSefJTzdj1,,10,1898
+5KKpBU5eC2tJDzf0wmlRp2,,80,2321098
+1dfeR4HaWDbWqFHLkxsg1d,classic rock|rock|glam rock,85,53934314
+0hPar6ePAELiu9rYMdvMEo,samba|pagode|mpb,63,1169593
+4uKEP0JYfpFtngWlgViewd,memphis rap,61,305181
+2KgHaeIdNreTeUWwhfcmlE,lo-fi beats,29,612
+1mG23iQeR29Ojhq89D5gbh,,53,415633
+5UIjccuGVFJEyilsWmrnLC,jazz beats,2,2
+7I4k8lhED0kNnxJgR4BCsS,acid jazz|latin jazz|jazz,32,1385
+5wu05jGsVMAFHYMYHqCB9l,jazz|jazz fusion,46,218510
+42nEiwAAE2ypWbygM9iyJi,nova mpb,43,45981
+4hUmsYcvD8C5zuVSP93jb1,city pop|j-pop,62,595474
+2LgpMIlGkiQALH1Hvzqjd6,,5,150
+5nH2klYTzn8CNvUv1GOGQO,pop urbaine|french pop|chanson,53,1139069
+0TQUgpZqEnfluYEfKQBYB6,french jazz|chanson|variété française|french pop,51,116050
+0c4nkBidzl5CZ2pHL5ldXF,,4,48
+74s20sgZC7YilIBCAyx87R,,2,63
+1TeGd2GZMb7pHDV2cdgSjW,,29,1127
+4kOHVYMZUnNasTU8eKJpme,jazz house,40,1568
+3ymapzvo0GHTbfdJPYtWxl,,0,1
+7fh7bwX9qV60tLxxsp9bTe,art rock|post-punk,45,117397
+3zmfs9cQwzJl575W1ZYXeT,bedroom pop|indie pop,74,2202586
+7EK1bQADBoqbYXnT4Cqv9w,folk,70,2451140
+00FQb4jTyendYWaN8pK0wa,,92,47632340
+06zS0fTnfMX9Bg3UTfKbD9,country hip hop,50,105394
+21MG3ongZHFbUnXpK8prTg,vietnam indie|v-pop,33,4827
+7fBoiBMJriGMdmvOZKYgjr,v-pop,21,2998
+6ZRBTMONSlddCATaF9Qlq5,,42,21233
+37lYaYPWOHjKXBD33S6LNv,country,51,83562
+2qNrJcE9LjzPdiXbrjkqFa,,70,1100360
+2ItyqN4i9lNz49g421p0Cl,anime,49,15513
+4ws2inM1n8fx4JijwRqHzS,,54,16406
+32inCN7Q5bGe75dTlIFpOk,,18,182
+59hLmB5DrdihCYtNeFeW1U,,65,564151
+7cPmBlC8WQigJ6SmasdV4b,,16,199
+6evVLxWyiwmi8gDtHn1Vzx,,36,11333
+6zpNfYJcPavd1pqLXKiSvl,sertanejo|sertanejo tradicional|sertanejo universitário,62,1788498
+4sOvsEM0ooH149joyEm7Wg,v-pop|vietnam indie|vietnamese bolero|vietnamese hip hop|vinahouse,44,114387
+0BvkDsjIUla7X0k6CSWh1I,country|acoustic country,78,9218869
+3bXI7okxW0V3IBXPgnfcG5,,28,321
+2wX6xSig4Rig5kZU6ePlWe,big room|edm|slap house|electronica,65,1778121
+2h1yu5lZfADFN2OG7UvzEq,honky tonk|rockabilly,28,12496
+10qftDVPJi5n8xFsgZHu5K,,20,201
+5Pwc4xIPtQLFEnJriah9YJ,soft pop,85,18279986
+1fQjpmcx8iNIy1gKRelTD2,vietnam indie|v-pop,42,48758
+1R52cwGf75yTf7I3Q0Irf8,k-pop,56,830631
+1HGoDMf4NV49KgHsZFK6CS,vinahouse|v-pop,14,236
+5ro8EfOMDdgMSbIccUShrP,reggae,54,82719
+55U98QFBJAkjC7bDfpVqtg,vietnamese bolero|bolero,32,4827
+69mxXDPodcz1qr9p68AqsJ,children's music,37,9396
+7cu0Ithis498siYB1TDWuY,,9,641
+2M4Yt7oKGoYd0wqU44k4i2,country,67,1552494
+3LVqjXvcYbwMZc4vt4wKpM,vietnam indie|v-pop,30,23716
+4mxWe1mtYIYfP040G38yvS,country|christian country,75,3170136
+19EC8VR2I9uIN60bW9hj4B,traditional music|vietnamese bolero,31,4402
+6GfiCQDFYANz5wUkSmb3Dr,christian rock|christian alternative rock|rap metal,67,1454114
+464lg9IWmEnZAqVVwbkO9t,vietnamese bolero,22,5496
+6x2LnllRG5uGarZMsD4iO8,country|acoustic country|pop country,78,4886952
+5TIZ9p5TSviYl96ladXXFw,vietnamese bolero|bolero|v-pop,43,120561
+5nJFIxTnnNBh2ZIP3dsk6x,children's music,46,34698
+06HL4z0CvFAxyc27GXpf02,,98,137688349
+0FGUq23Ku8rmR1rrRHhWSa,bhangra|punjabi pop,30,385084
+26jdbJyBkpr6LivDYvKp2r,,43,23348
+4NZvixzsSefsNiIqXn0NDe,,70,1241018
+3qjM5wZcTHcHFf1c8ihjWr,comedy,1,277
+3NMfMCA11Xo7RUc91o64Og,japanese classical,59,32951
+4l2DBGO8M3iEGsEVQzI1ph,,16,797
+7Aq2oT2xuzRxIqdiqjRESp,indie dance|afro house|melodic house|melodic techno,28,5741
+0LyfQWJT6nXafLPZqxe9Of,champeta,0,2706617
+6uHGmRFCshy9WUO7Y7Zq2e,,35,890
+4sON2lROSrWxBOvZgI5jqY,,35,4800
+4RINs91XDFLmQtdHC9KEvH,power pop|psychedelic pop,13,2135
+5koTBxO31TIzxRzBvsxzwH,slowcore|shoegaze,35,10071
+1Bma7GS3Si9l7IZEc3S5L8,,28,3991
+7kUD0blCWdWDmQEdaWMG7V,,1,81
+2amVBLl47zl2VpBbJwCRvZ,melodic techno,26,1327
+6AAkeead1pA9ejjB3ulNRl,,0,157
+1wLNgQPdaRc5FqfINHAw5r,,0,1100
+7MJ1pB5d6Vjmzep2zQlorn,classical|requiem|opera|neoclassical|choral,48,52003
+1k7ExTp4YI6Xtrkjx3R2Au,,5,892
+5zyNXVd952fWOjkdGHCvPd,classical|neoclassical,45,121085
+7oXsRY3qdFKsxJRNHsPgDd,,3,91
+51bn4xDakgAbK2z8EIzQZ4,french house|jazz blues,0,95
+6vLlQYujOujIrm7zAKzEdG,folk rock|psychedelic rock,55,734384
+0dDIQXCc5PRqBt9nJ0j7aS,,38,12854
+18hCPASBQFR7Nm4o8z8spc,,8,201
+4TKTii6gnOnUXQHyuo9JaD,,69,1287249
+24mCrmpVV2xgoHxR6ZPNwA,,4,189
+5kFHS4mQd9W0r7qDp8ec9A,swedish ballads|bisrock,48,125376
+5cAtakaadWHJLxmGKrKcX7,alternative r&b,42,256131
+2fAAEqIS8u1gCAvy103Vtv,,24,696
+2Zj2PT3BXPuukoVh5OrVuf,,0,301
+45HjTelZTh74OsfANh6vIe,chamber music,4,820
+6088UyUnNFQQdFCkNDxbyS,chinese r&b|c-pop|mandopop,36,3473
+2ye2Wgw4gimLv2eAKyk1NB,metal|thrash metal|rock|heavy metal|hard rock,84,30747458
+7AuwIissSkefApTBF086JE,,42,41003
+1HY2Jd0NmPuamShAr6KMms,art pop|pop,94,38114668
+1EkJItZB7SZ49NabsOINPX,brazilian rock,17,5331
+4DWX7u8BV0vZIQSpJQQDWU,post-grunge|alternative metal|hard rock,62,1200162
+1f8UNsnIHYgguJ6n7FDS9K,,43,20301
+1dLWg6m8RRhizsdqJbhyj3,glam metal|hard rock|glam rock,58,1969285
+57DlMWmbVIf2ssJ8QBpBau,soundtrack,73,1785103
+5QcGYbIhQiKu472ypOrhJu,,48,13957
+1fxIxrQnSfLa8xNFodmBmO,schlagerparty,17,816
+5ZOKvzD4GQ7Yg2CS4CVbRb,,54,48434
+5KQMtyPE8DCQNUzoNqlEsE,new wave|synthpop|industrial|industrial rock,55,491324
+6olE6TJLqED3rqDCT0FyPh,grunge|rock,84,22215119
+65T5OWkp6XPHZzurwEaBl6,j-rock,27,16927
+630wzNP2OL7fl4Xl0GnMWq,j-rock|metal,70,2498823
+1hGdQOfaZ5saQ6JWVuxVDZ,japanese vgm,62,93773
+6T08mUIMB32dtqq5ryxQZ3,french indie pop|french pop|french house|variété française|chanson,48,105386
+05fG473iIaoy82BF1aGhL8,nu metal|metal|alternative metal|rap metal|heavy metal,81,13249835
+58WFmcqNmejE2IpVIna43o,post-punk,26,62396
+4ShgdWtm52xvEr8uYmT0V6,japanese vgm|soundtrack,66,350543
+2tRsMl4eGxwoNabM08Dm4I,heavy metal|metal|hard rock|glam metal|speed metal,68,4376898
+21JKDXC6Hihde2MshJBXM7,,51,629
+7pOKRPPfbtv5c7Kdv40LVo,,46,17122
+711MCceyCBcFnzjGY4Q7Un,rock|hard rock|classic rock|rock and roll,83,31233529
+52NXqMHtbZNeAYpz4emC9a,,7,333
+1qYedLslaYmgquDtL0GxFO,,47,11650
+0rBTR006tODhAwpgtRDb3f,,39,31965
+7zXyNC1Z0t3nvEZfYDTX0T,breakcore,37,4301
+7cJZKfxEbQbjmgCFIZDDp9,anime,40,8768
+7ACEUD7UsmmXrnj4OLt8f9,,66,119637
+2pAWfrd7WFF3XhVt9GooDL,experimental hip hop|east coast hip hop|jazz rap|alternative hip hop,76,3823148
+0C8ZW7ezQVs4URX5aX7Kqx,,87,52572268
+36QJpDe2go2KgaRleHCDTp,classic rock|rock|hard rock|rock and roll,79,15498373
+25uiPmTg16RbhZWAqwLBy5,hyperpop|art pop,87,5562146
+0f8MDDzIc6M4uH1xH0o0gy,blues|classic blues|country blues,48,609590
+2dd6B3Uhzim5ttqmISX9ez,,19,4941
+6zO1dZ40fTZ5hY9NnnRJSk,,76,1239532
+6fNmOWQzfOVyHLQ2UqUQew,,58,544220
+0b1sIQumIAsNbqAoIClSpy,k-pop|k-rap,80,18483736
+1W4itxt3vwhmrgLEBuVHJ6,,63,513976
+0oUvRAt9hv96E6akDwgWCI,,57,131767
+3K6ueahyMBq96ZtDjo9LSn,blues|blues rock|modern blues,29,17112
+4Kxlr1PRlDKEB0ekOCyHgX,k-pop,73,5809430
+38WbKH6oKAZskBhqDFA8Uj,j-pop|j-rock|anime|japanese indie,68,2099543
+30fEdZPXgWfC4sNttcyB3C,argentine rock|latin rock,64,1791124
+45dkTj5sMRSjrmBSBeiHym,,90,7763826
+65Msz2E34NUtbjEbsrsJlJ,art rock,50,93769
+3OyGv7XUYQwQgECYSzJhyO,bluegrass|traditional country|honky tonk|country,50,163627
+53xh7BAl56yKW1LrqaLqdq,jazz,42,402
+2mopkIQxw9oLxUUUd0DdxK,,49,36425
+74ASZWbe4lXaubB36ztrGX,folk rock|folk|singer-songwriter|roots rock|country rock,77,7131896
+0hzZTaZ59eR5lESXHRVgkc,melodic house|deep house,50,26834
+3nvwZXSG0qMhKKq98hcKj9,lo-fi beats,38,40
+7AZz7NIZYmsop1ipI6009w,stutter house,38,16443
+0C7tVaY5qlP5YgYh7DSUoJ,,51,33347
+79BbybQeUyNyFB8ghq4neb,v-pop|vietnamese hip hop|vietnam indie,36,4445
+3NVVnLckJbY504etFBmOLC,,47,7396
+0A0cOM444T6hJehiTABk83,jazz,35,333
+7qFqo0wbAJSGPiP115Z0lT,sertanejo tradicional|sertanejo,49,2481
+2lL4ckeM1A2Qo2Fe64dP0F,blues|modern blues,36,33032
+0kFpfUKcW4ltMuRarIN0li,,51,9403
+3YymwcoMkoY21jce0PLBaC,jazz,43,272
+4qwvSfN4vvXmOfepMFSCeX,,45,18631
+4LX0KCPnH7gvxEbVXqXmAE,bluegrass|newgrass|americana,48,103650
+49c9aMExk5OrSSsSQi0uhw,,8,17
+1oSPZhvZMIrWW5I41kPkkY,k-pop,83,10200089
+6R7WjUX7Fk4zHPEHSdqEkY,blues|blues rock|modern blues,39,139713
+5IcR3N7QB1j6KBL8eImZ8m,,75,5005558
+37YzpfBeFju8QRZ3g0Ha1Q,lo-fi house,53,104850
+2vbacV9IWLEz4ias5FKnU9,vinahouse|vietnamese hip hop|v-pop,9,37
+4HV0yoclphwNw68w6kLQ3X,traditional music|vietnamese bolero|j-dance,8,631
+6IIp7wMLdLoAWCpBjHaWid,v-pop,25,186
+3c8YvfkS0P01LGTynw582C,traditional music|japanese classical,31,9266
+3rbFpJkaR60h3KtE4YSZWd,v-pop|vietnamese bolero,45,86738
+2Y9gVu6YtWypZXjynm7O2i,,0,22
+4OAuZjHIYMfw91tIHTw8ia,v-pop,25,150
+5k5vCzAmH0dcRda22U9Hut,v-pop|vietnam indie,42,31396
+3nGqUwkJHiLPDECMVrX1Sq,v-pop|vietnamese hip hop|vinahouse|vietnam indie,53,660317
+6CoCGXyUnocaqoKdRzDl8r,,35,2465
+4mh6FZsF9gO7mRUOfTTMIU,traditional music|vietnamese bolero,17,2423
+6YEptnkLZb6lpqi74ftRQK,,24,1129
+32EbvVlygDFr90mV1HMHOu,v-pop,32,4559
+1tqsJ5xvw9jonXHT9yGcxY,japanese classical|traditional music,27,884
+2DpuPZSraeVoLMKV5QJj7y,v-pop|vietnam indie,33,62708
+62sxxIG77fFOZKQkKDF0wt,vinahouse|v-pop|vietnamese bolero|bolero,46,32078
+4YkqEuVf1Jf2x2XDqJ2CvC,v-pop|vietnam indie|vietnamese bolero,50,287012
+02rLqQfWp5cmZYBShP1Fu5,vietnamese bolero|v-pop|bolero,33,11983
+5HnaYivMXMHeOKCvyPGUkk,v-pop|vietnam indie,43,33019
+3NckpPMWZSEus6PyV6LoVc,vinahouse|v-pop|vietnamese bolero|vietnamese lo-fi,40,121707
+6ejNBkKELboWfpyPYwWB5Q,traditional music,0,0
+4VSeuUbWJonXU8HiCoTIOT,vietnamese bolero,22,2400
+2wjsoWglhKBQVfjUGdth1y,vietnamese bolero|v-pop|bolero|vinahouse,44,89494
+5cisgC4GJ18g6LP6kuV9V8,v-pop,6,312
+4wNg5ZhKx93in8IpkdaWNe,v-pop,8,178
+6KGbisHewCDkmFZFMIfMIL,v-pop,16,496
+0IdAjS2LRieBR3gzoazdAw,v-pop|vietnamese hip hop|vietnam indie|vinahouse,57,1090867
+5TSjLaWHQ69GaALubAM7gR,v-pop|vietnamese lo-fi|vinahouse|vietnam indie,45,224356
+25MjEeusf39IrbYZ6iXERh,v-pop,0,91
+2xkx7f7IFOKPz9UNIhWmmZ,v-pop,0,133
+65soYJxad6WyusokHWu4aI,vietnamese bolero|bolero,27,14737
+0OmA11d6wVcqYWweVxXlJV,,4,406
+57M6CPxKA3PupILf8rAZZe,,0,5
+6UnpDSSYm6SCfCqDTcFV66,,0,0
+0rV4grC48zpGS9UrtksFJW,,0,0
+7a8C5EgQZBrW2JXKjDf9iv,,0,4
+3SAJ7UOcpUYhelJZaeutA9,,0,1
+335MrdyIGxzxMpSeovs88v,,0,231
+7sfx8IET0MFEojQp9f29Nu,,0,0
+2nfy0nJ70ftD2p3WeEVrw9,vietnamese bolero|bolero,25,11885
+6bbhm71yiMEx3aXQbIoe2T,,0,1
+2KwQeuMOTVY5Z8OU3nOnpR,,0,17
+1F3JbS6eCH5fvK1csRsSTp,,21,340
+63SNH9m8M034lCGELVC1dm,v-pop|vietnamese hip hop|vinahouse|vietnam indie,48,483624
+1BcjfrXV4Oe3fK0c8dnxFF,v-pop|vietnamese bolero,46,157570
+6CGGvCBHWqQ4HXtn5aLhbh,v-pop|vietnamese hip hop|vietnam indie|vinahouse,64,1066259
+5L9ssI4l4DKU1za4ZwvKvG,v-pop,47,7419
+3Ik733blVNzyxrZrjgXlOx,v-pop|vietnamese hip hop,23,4514
+5kZm4Xqiu4GIhbm912n4fW,v-pop|vietnam indie,35,45279
+3f7Dr7qtAJutrBV8mjozhh,v-pop|vinahouse|vietnamese hip hop,33,1803
+78TTKBLrw5XIRty0KnyftQ,v-pop|vinahouse|vietnamese bolero,40,168490
+2aMo0CYbTieTisS0BlWc59,v-pop|vietnamese lo-fi|vietnamese hip hop|vietnam indie,58,321007
+3AnILK45fD4tHvqGT5uFun,traditional music,3,1254
+0OECMkZp1koXqQLQrMizHb,v-pop|vietnamese lo-fi|vinahouse|vietnamese bolero,43,67137
+7qgJkqICsYsUtU8a5SwG9b,,8,2119
+5h0cBKxBX54CqPaQU6tJhk,vietnam indie|v-pop,36,94901
+6hhgyoKVX6lJl3hdeivtU4,,10,3005
+6MGnOdzzXNoGcUgfxMcSwA,,27,3586
+11Iwq2edF5N9PMi2BspjhT,,5,912
+4fg8aMZ23d2bxKz7r2vt9v,v-pop|vietnamese hip hop|vietnam indie|vinahouse,63,322601
+55kmV7D802n47etECXapOe,,1,251
+0zjaUrLR3HdMCwUDpibbcz,,7,323
+7yRDcF8kWO70GsJC71wmJv,v-pop|vietnam indie,29,12458
+5IqNNLQC9wNmfZZuPPyOb1,,3,37
+4wZ6awunqaaVLl5j0WpDFu,v-pop|vietnamese hip hop,66,861465
+0dfdmwLEoKV0KTUWsS8eWE,orchestra|polka,18,234
+6eUKZXaKkcviH0Ku9w2n3V,soft pop,90,120476257
+1OIYKbmhG0RxPXvVPNj3NN,v-pop|vietnam indie|vietnamese hip hop,52,277164
+0emsH9Tmz1e17k8k1IUsID,,0,299
+507jCIoCexWx2BipMeiHYD,,0,119
+3JyQVNildx5ZpCt6xf0jp2,vietnamese bolero|v-pop,25,1317
+4OxfghTTEa7wIa1GcXtWVD,,6,3266
+4gzpq5DPGxSnKTe4SA8HAU,,91,58431277
+2yIwLJKU6yJhiuAypZVkJU,,3,187
+137W8MRPWKqSmrBGDBFSop,rap,84,12007316
+0kObWap02DEg9EAJ3PBxzf,,69,1251383
+7jVv8c5Fj3E9VhNjxT4snq,,75,12351557
+01gp5ElAZTH3BNkFII1qPM,,15,1083
+7mJOp9EcXEdAH6TL36flXw,indie folk,25,3546
+6V3LuodmG70Gbx6FvEWPo8,schlagerparty,8,779
+6vFCfSDEGGjyLpkMa1YhBE,disco,23,1382
+3eVa5w3URK5duf6eyVDbu9,k-pop,84,11482133
+0bZ9QBZME5UoX7PGgM6Ahi,,24,2118
+4KPyQxL1zqEiBcTwW6c9HE,v-pop|vietnamese hip hop,63,509655
+48YxSlb23RAaCd4RyHcV9V,,51,510826
+0zo8kCJVktn7oPnzpkbC2p,v-pop|vietnamese lo-fi|vietnam indie,53,91364
+0J2Ej2rMQyqaUX3G6MUISw,soft rock,59,413662
+14h0UcPJlGYv5Qrjp7m1jQ,christian country|traditional country,33,31266
+3Cv2vi3WTl8VZOTdrBkKdM,k-pop,59,978075
+6jQ9UtYXqNfVnPkrH1Xxwi,,52,22477
+5vMbZePneBfRUDZhrIRFZ5,,24,13645
+39UJlviUwzZGZrA8DiQy31,vietnamese hip hop|v-pop,48,37055
+6gYjIUFuKIBVJfxXnmrd5P,,52,36483
+4sj6D0zlMOl25nprDJBiU9,christmas|adult standards,57,580582
+5fmvGUlMVgmnCn45f1he7d,,49,96283
+6eP3cHtamrAkesH0FxFPAt,brazilian trap,13,387
+7xcXR8rEj6eRPVMFjUNtBe,disco,35,34325
+4kYSro6naA4h99UJvo89HB,,80,25339148
+64vw6q9ZBTop3Tf2ol1x4U,doo-wop,41,35178
+4vGf7sM2PQIG24iuw5Nrjv,,8,1003
+0QRgfCLzSR9GyCjXboWQTA,,43,36814
+4qzZ6bMrjK27yHGVjs4Pvq,soft rock,44,27751
+6gtIvaBCrswcltfMt67LMn,meme rap,53,571999
+0268OztCe1Z7FpnrxVCJxc,,5,699
+0KcrR46L75FgSR7uRuIwqB,,8,1759
+7cYEt1pqMgXJdq00hAwVpT,,83,9710823
+12XKu8YfmsZBhvXnm2OLOh,,2,228
+0DmJUAiaxnUhwE0YswLeMW,hi-nrg,33,2884
+5SdxHHfstcRfGIxOw1ghSN,v-pop|vietnamese hip hop,41,5093
+0WfR5qds4TBIIrOd1cfoH5,thai pop,11,987
+3KJopZ2uUclqEtLxQg0FNn,v-pop|vinahouse|vietnamese lo-fi,49,561008
+6vFz8SAf3JBH0kdz8UMSOh,thai pop|thai rock|t-pop|luk thung,51,463195
+12scI4mEdyEDBi7cdkxkVZ,vietnamese lo-fi|v-pop|vietnam indie|vietnamese hip hop,46,34697
+0yh8BHqtPFTB00wfzVmhnI,,28,427
+2s2AP9Bj9ltYjB9XIbGr0e,v-pop|vietnam indie,41,11950
+2M4eNCvV3CJUswavkhAQg2,soundtrack,65,398734
+3RvDvs8u3A7qVJjkG6NoPb,synthwave|chillwave|vaporwave,32,7213
+3hRnvEdu1iPyB6EzMBbuZq,vietnamese hip hop|v-pop|vietnam indie,64,79254
+5NX29TmuYrENlpvz6IgYMJ,adult standards|big band,43,69372
+0du5cEVh5yTK9QJze8zA0C,,93,71878959
+0kpfYS6tpGQ5CBvJDBGV8t,hi-nrg,33,339
+7rOCufggUE6x8bTdU0FBzt,hi-nrg|europop|hypertechno,26,1424
+13c4ijEkXNvEFoxGxwp5Su,v-pop|vietnamese hip hop,60,238195
+5B9q1NRokzWYB7nSgnlHyv,trance|progressive trance,52,141150
+04iRGluzxLz3aZmKTjOvBp,v-pop|vinahouse|vietnamese lo-fi,33,9596
+50V9ltQxXFeN4GFoEIF4GD,,33,3493
+7CirIWsF6Zm9SLjGdg1n0S,v-pop|vietnamese hip hop|new wave,34,10011
+7nPbrzSt1apQM9rY5DVqQZ,turkish hip hop|slap house|trance,41,21869
+6diiyZ15AVZoSxzAyjIYJT,trance|progressive trance,38,31313
+1CmpPe389rlcewV0pAmxyq,vietnamese hip hop|v-pop|new wave,42,15849
+15qIW0R8ys6DkGKygGnMEN,v-pop,39,11518
+1BYxA12Ptu7vku1GY4bniO,vietnamese hip hop|v-pop|vietnam indie,29,5379
