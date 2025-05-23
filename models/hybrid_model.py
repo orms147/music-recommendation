@@ -24,6 +24,8 @@ class MetadataRecommender(BaseRecommender):
         # Save tracks_df for use during recommendation
         self.tracks_df = tracks_df
         
+        logger.info(f"Columns in tracks_df: {self.tracks_df.columns}")
+        
         # Train content-based model
         logger.info("Training content-based recommender...")
         self.content_recommender.train(tracks_df)
@@ -81,11 +83,19 @@ class MetadataRecommender(BaseRecommender):
             # Tạo queue với số lượng bài hát đề xuất
             track_ids = self.content_recommender.recommend_queue([seed_id], n_recommendations)
             
-            if not track_ids:
+            logger.info(f"Columns in tracks_df: {self.tracks_df.columns}")
+            if self.tracks_df.empty:
+                logger.error("tracks_df is empty!")
                 return None, None
-                
-            # Lấy thông tin bài hát
+            if 'id' not in self.tracks_df.columns:
+                logger.error(f"DataFrame columns: {self.tracks_df.columns}")
+                raise ValueError("DataFrame không có cột 'id'.")
+            
             queue = self.tracks_df[self.tracks_df['id'].isin(track_ids)].copy()
+            logger.info(f"Queue shape: {queue.shape}")
+            if queue.empty:
+                logger.warning("Queue is empty after filtering by track_ids.")
+                return None, None
             
             # Đảm bảo thứ tự trong queue
             queue['order'] = queue['id'].apply(lambda x: track_ids.index(x) if x in track_ids else 999)

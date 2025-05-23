@@ -9,7 +9,7 @@ import numpy as np
 import pickle
 
 from config.config import (
-    RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR,  # Thêm MODELS_DIR vào đây
+    RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR,
     DEFAULT_TRACKS_PER_QUERY, MAX_TRACKS_PER_QUERY, 
     MIN_TRACKS_PER_QUERY, TRACKS_QUERY_STEP,
     LARGE_DATASET_DEFAULT_SIZE, LARGE_DATASET_BATCH_SIZE, LARGE_DATASET_SAVE_INTERVAL
@@ -17,6 +17,7 @@ from config.config import (
 from utils.data_fetcher import fetch_initial_dataset
 from utils.data_processor import DataProcessor
 from models.hybrid_model import MetadataRecommender
+from models.weighted_content_model import WeightedContentRecommender  # Thêm dòng này
 
 # Thiết lập logging
 logging.basicConfig(level=logging.INFO)
@@ -27,23 +28,32 @@ load_dotenv(dotenv_path=Path(__file__).parent / '.env')
 
 # Biến toàn cục cho model
 model = None
+weighted_model = None  # Thêm biến cho model mới
 
 def initialize_model():
     """Khởi tạo model khi khởi động ứng dụng"""
-    global model
+    global model, weighted_model
     model_path = os.path.join(MODELS_DIR, 'metadata_recommender.pkl')
-    
+    weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
+
+    # MetadataRecommender
     if os.path.exists(model_path):
         try:
             model = MetadataRecommender.load(model_path)
             logging.info(f"Đã nạp model từ {model_path}")
             logging.info(f"Model được huấn luyện vào: {model.train_time}")
-            return True
         except Exception as e:
             logging.error(f"Lỗi khi nạp model: {e}")
-            return False
-    
-    return False
+            model = None
+
+    # WeightedContentRecommender
+    if os.path.exists(weighted_model_path):
+        try:
+            weighted_model = WeightedContentRecommender.load(weighted_model_path)
+            logging.info(f"Đã nạp weighted model từ {weighted_model_path}")
+        except Exception as e:
+            logging.error(f"Lỗi khi nạp weighted model: {e}")
+            weighted_model = None
 
 def check_spotify_credentials():
     from config.config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
@@ -70,58 +80,79 @@ def setup_initial_dataset(progress=gr.Progress(), tracks_per_query=DEFAULT_TRACK
 
 def train_model():
     """Huấn luyện hoặc nạp lại mô hình đề xuất dựa trên metadata"""
-    global model
+    global model, weighted_model
     try:
         # Đường dẫn để lưu/nạp mô hình
         model_path = os.path.join(MODELS_DIR, 'metadata_recommender.pkl')
-        
+        weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
+
         # Kiểm tra xem mô hình đã tồn tại chưa
         if os.path.exists(model_path):
             logging.info("Tìm thấy mô hình đã huấn luyện, đang nạp...")
             model = MetadataRecommender.load(model_path)
             logging.info(f"Đã nạp mô hình thành công (được huấn luyện vào: {model.train_time})")
-            return "Đã nạp mô hình thành công!"
-        
-        # Nếu không tìm thấy mô hình, huấn luyện mới
-        logging.info("Không tìm thấy mô hình đã lưu, đang huấn luyện mới...")
-        
-        # Kiểm tra dữ liệu đã xử lý
-        processed_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
-        if not os.path.exists(processed_path):
-            # Xử lý dữ liệu nếu chưa có
-            processor = DataProcessor()
-            processor.process_all()
-        
-        # Đọc dữ liệu đã xử lý
-        tracks_df = pd.read_csv(processed_path)
-        
-        # Huấn luyện mô hình
-        model = MetadataRecommender()
-        model.train(tracks_df)
-        
-        # Lưu mô hình
-        model.save(model_path)
-        
-        logging.info(f"Đã huấn luyện và lưu mô hình thành công!")
-        return "Đã huấn luyện mô hình thành công!"
-        
+        else:
+            logging.info("Không tìm thấy mô hình đã lưu, đang huấn luyện mới...")
+            processed_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
+            if not os.path.exists(processed_path):
+                processor = DataProcessor()
+                processor.process_all()
+            tracks_df = pd.read_csv(processed_path)
+            model = MetadataRecommender()
+            model.train(tracks_df)
+            model.save(model_path)
+            logging.info(f"Đã huấn luyện và lưu mô hình MetadataRecommender thành công!")
+
+        # WeightedContentRecommender
+        if os.path.exists(weighted_model_path):
+            logging.info("Tìm thấy weighted model đã huấn luyện, đang nạp...")
+            weighted_model = WeightedContentRecommender.load(weighted_model_path)
+            logging.info("Đã nạp weighted model thành công!")
+        else:
+            logging.info("Không tìm thấy weighted model đã lưu, đang huấn luyện mới...")
+            processed_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
+            if not os.path.exists(processed_path):
+                processor = DataProcessor()
+                processor.process_all()
+            tracks_df = pd.read_csv(processed_path)
+            weighted_model = WeightedContentRecommender()
+            weighted_model.train(tracks_df)
+            weighted_model.save(weighted_model_path)
+            logging.info("Đã huấn luyện và lưu weighted model thành công!")
+
+        return "Đã huấn luyện cả hai mô hình thành công!"
     except Exception as e:
         logging.error(f"Lỗi khi huấn luyện mô hình: {str(e)}")
         return f"Lỗi khi huấn luyện mô hình: {str(e)}"
-    
+
 def recommend_similar(song_name, artist_name="", n=10):
-    global model
+    global model, weighted_model
     if model is None or not model.is_trained:
-        return "Mô hình chưa được huấn luyện. Vui lòng huấn luyện mô hình trước."
+        return "⚠️ Mô hình Metadata chưa được huấn luyện. Vui lòng huấn luyện mô hình trước."
+    if weighted_model is None or not weighted_model.is_trained:
+        return "⚠️ Mô hình Weighted chưa được huấn luyện. Vui lòng huấn luyện mô hình trước."
     try:
-        recommendations = model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
-        if isinstance(recommendations, str):
-            return recommendations
-        # Trả về markdown để Gradio Markdown/Textbox không lỗi
-        return recommendations.to_markdown(index=False)
+        rec1 = model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
+        rec2 = weighted_model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
+        # Kiểm tra nếu cả hai model đều trả về random (không tìm thấy bài hát)
+        not_found1 = isinstance(rec1, pd.DataFrame) and song_name.lower().strip() not in rec1['name'].str.lower().str.strip().values
+        not_found2 = isinstance(rec2, pd.DataFrame) and song_name.lower().strip() not in rec2['name'].str.lower().str.strip().values
+        if (isinstance(rec1, str) and "not found" in rec1.lower()) or (isinstance(rec2, str) and "not found" in rec2.lower()) or (not_found1 and not_found2):
+            return f"❌ Không tìm thấy bài hát **{song_name}** (nghệ sĩ: {artist_name}) trong dữ liệu. Vui lòng kiểm tra lại tên bài hát và nghệ sĩ!"
+        result = "### Đề xuất theo MetadataRecommender:\n"
+        if isinstance(rec1, str):
+            result += rec1 + "\n"
+        else:
+            result += rec1.to_markdown(index=False) + "\n"
+        result += "\n---\n### Đề xuất theo WeightedContentRecommender:\n"
+        if isinstance(rec2, str):
+            result += rec2
+        else:
+            result += rec2.to_markdown(index=False)
+        return result
     except Exception as e:
         logging.error(f"Lỗi khi đề xuất: {e}")
-        return f"Lỗi khi đề xuất: {str(e)}"
+        return f"❌ Lỗi khi đề xuất: {str(e)}"
 
 def generate_playlist(seed_track, seed_artist="", queue_length=10):
     global model
@@ -130,7 +161,7 @@ def generate_playlist(seed_track, seed_artist="", queue_length=10):
     try:
         playlist, analysis = model.generate_playlist_from_seed(seed_track, seed_artist, queue_length)
         if playlist is None or playlist.empty:
-            return "Không thể tạo playlist."
+            return f"❌ Không tìm thấy bài hát **{seed_track}** (nghệ sĩ: {seed_artist}) trong dữ liệu. Vui lòng kiểm tra lại tên bài hát và nghệ sĩ!"
         result = "## Playlist đề xuất:\n"
         for i, row in enumerate(playlist.itertuples(), 1):
             result += f"{i}. **{row.name}** - {row.artist}\n"
