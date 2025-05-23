@@ -4,6 +4,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import MinMaxScaler
 from models.base_model import BaseRecommender
 from config.config import CONTENT_FEATURES
+import pickle
 
 import logging
 logger = logging.getLogger(__name__)
@@ -28,23 +29,25 @@ class WeightedContentRecommender(BaseRecommender):
         }
 
     def train(self, tracks_df):
-        """
-        Chuẩn hóa dữ liệu và chuẩn bị các đặc trưng cần thiết.
-        """
+        """Chuẩn hóa dữ liệu và chuẩn bị các đặc trưng cần thiết."""
         self.tracks_df = tracks_df.copy()
+        
         # Chuẩn hóa popularity
         self.scalers['track_popularity'] = MinMaxScaler()
         self.tracks_df['track_popularity_norm'] = self.scalers['track_popularity'].fit_transform(
             self.tracks_df[['popularity']].fillna(0)
         )
-        # Chuẩn hóa artist_popularity nếu có
+        
+        # SỬ DỤNG artist_popularity đã được clean trong DataProcessor
         if 'artist_popularity' in self.tracks_df.columns:
             self.scalers['artist_popularity'] = MinMaxScaler()
             self.tracks_df['artist_popularity_norm'] = self.scalers['artist_popularity'].fit_transform(
-                self.tracks_df[['artist_popularity']].fillna(0)
+                self.tracks_df[['artist_popularity']].fillna(50)
             )
+            logger.info("Using cleaned artist_popularity from DataProcessor")
         else:
-            self.tracks_df['artist_popularity_norm'] = 0
+            logger.warning("artist_popularity not found, using default values")
+            self.tracks_df['artist_popularity_norm'] = 0.5
 
         # Chuẩn hóa release_year (càng mới càng cao)
         if 'release_year' in self.tracks_df.columns:
@@ -76,9 +79,7 @@ class WeightedContentRecommender(BaseRecommender):
         return sim
 
     def recommend(self, track_name=None, artist=None, n_recommendations=10):
-        """
-        Đề xuất bài hát dựa trên weighted scoring và genre similarity.
-        """
+        """Đề xuất bài hát dựa trên weighted scoring và genre similarity."""
         if not self.is_trained:
             logger.error("Model not trained.")
             return "Model not trained."
@@ -110,7 +111,7 @@ class WeightedContentRecommender(BaseRecommender):
 
         # Track popularity
         track_pop = df['track_popularity_norm'].values
-        # Artist popularity
+        # Artist popularity (đã clean)
         artist_pop = df['artist_popularity_norm'].values
         # Same language
         same_lang = (df['is_vietnamese'] == seed['is_vietnamese']).astype(float).values
@@ -132,4 +133,21 @@ class WeightedContentRecommender(BaseRecommender):
         df = df.drop(idx)
 
         recommendations = df.sort_values('final_score', ascending=False).head(n_recommendations)
-        return recommendations[['name', 'artist', 'final_score', 'popularity', 'artist_popularity', 'release_year']]
+
+        # Tạo DataFrame kết quả với tên cột clean
+        result = recommendations[['name', 'artist', 'final_score', 'popularity', 'release_year']].copy()
+        
+        # Artist popularity đã clean
+        if 'artist_popularity' in recommendations.columns:
+            result['artist_popularity'] = recommendations['artist_popularity'].values
+
+        return result
+
+    def save(self, filepath):
+        with open(filepath, "wb") as f:
+            pickle.dump(self, f)
+
+    @classmethod
+    def load(cls, filepath):
+        with open(filepath, "rb") as f:
+            return pickle.load(f)

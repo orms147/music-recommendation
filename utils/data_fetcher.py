@@ -267,22 +267,37 @@ def fetch_initial_dataset(tracks_per_query=DEFAULT_TRACKS_PER_QUERY):
     
     # Define diverse search queries
     queries = [
-        'pop 2023', 'pop 2022', 'pop 2021', 'pop 2020', 'pop 2019', 'pop 2018',
-        'rock 2023', 'rock 2022', 'rock 2021', 'rock classics', 
-        'hip hop 2023', 'hip hop 2022', 'rap 2023', 'rap 2022', 'rap 2021',
-        'electronic 2023', 'electronic 2022', 'dance 2023', 'dance 2022',
-        'r&b 2023', 'r&b 2022', 'indie 2023', 'indie 2022', 
-        'classical piano', 'classical violin', 'classical orchestra',
-        'jazz 2023', 'jazz classics', 'country 2023', 'country 2022',
-        'folk 2023', 'metal 2023', 'blues classics',
-        'vietnamese music 2023', 'vpop 2023', 'vpop 2022', 'vietnamese songs 2023',
-        'korean pop', 'k-pop 2023', 'k-pop 2022', 'j-pop 2023', 'japanese music',
-        'top hits 2023', 'top hits 2022', 'top hits 2021', 'top hits 2020',
-        'billboard hot 100', 'viral hits', 'new releases',
-        'acoustic 2023', 'lo-fi beats', 'ambient music', 'study music',
-        'latin music', 'spanish hits', 'reggaeton', 'afrobeats',
-        'bollywood hits', 'edm 2023', 'house music', 'techno 2023'
+    # 🎵 Grammy & Billboard (Top-quality music)
+    'grammy winners 2023', 'grammy winners 2022', 'grammy winners 2021',
+    'billboard hot 100 2024', 'billboard hot 100 2023', 'billboard hot 100 2022',
+    'top global songs 2024', 'top global songs 2023',
+
+    # 🇯🇵 Japan (J-Pop, Anime, Official)
+    'j-pop top hits 2024', 'official japanese music 2024', 'j-pop 2023', 'japan top songs',
+
+    # 🇻🇳 Vietnam (V-Pop)
+    'v-pop top hits 2024', 'vietnamese chart songs 2023', 'vietnamese pop official',
+
+    # 🇰🇷 Korea (K-Pop)
+    'k-pop top hits 2024', 'korean top charts 2023', 'k-pop 2022', 'korean music official',
+
+    # 🇺🇸 US-UK (Mainstream)
+    'us top 100 songs 2024', 'uk top 100 songs 2024', 'us pop 2023', 'uk chart 2023',
+
+    # 🇨🇳 China (C-Pop, Mandopop)
+    'c-pop top songs 2024', 'mandopop 2023', 'chinese pop official', 'chinese music charts',
+
+    # 🎤 Rap (mainstream, award-winning)
+    'top rap songs 2024', 'rap billboard 2023', 'famous hip hop tracks', 'grammy rap songs',
+
+    # 🎧 EDM (non-remix, mainstream)
+    'top edm songs 2024', 'famous edm tracks', 'edm billboard 2023', 'edm festival anthems',
+
+    # 🎷 Other high-quality genres
+    'jazz standards', 'blues originals', 'country top 2023', 'indie top songs 2023'
     ]
+
+
     
     # 1. Fetch basic track data
     tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks.csv')
@@ -315,7 +330,7 @@ def fetch_large_dataset(target_size=100000, batch_size=LARGE_DATASET_BATCH_SIZE,
                   'vietnamese', 'vpop', 'korean', 'k-pop', 'japanese', 'j-pop',
                   'latin', 'spanish', 'reggaeton', 'bollywood', 'afrobeats']
     
-    years = range(2010, 2024)
+    years = range(2010, 2025)
     
     # Tạo kết hợp của thể loại và năm
     queries = []

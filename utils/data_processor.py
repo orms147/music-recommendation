@@ -72,6 +72,10 @@ class DataProcessor:
         if 'duration_ms' in self.tracks_df.columns:
             self.tracks_df['duration_ms'] = self.tracks_df['duration_ms'].fillna(self.tracks_df['duration_ms'].median())
         
+        if 'artist_popularity' not in self.tracks_df.columns:
+            self.tracks_df['artist_popularity'] = 50
+        self.tracks_df['artist_popularity'] = self.tracks_df['artist_popularity'].fillna(50)
+        
         # Log kết quả
         clean_count = len(self.tracks_df)
         logger.info(f"Cleaned tracks data: {initial_count} -> {clean_count} tracks")
@@ -152,7 +156,7 @@ class DataProcessor:
         return True
     
     def merge_artist_genres(self):
-        """Merge artist genres to tracks data"""
+        """Merge artist genres to tracks data và clean artist_popularity columns"""
         if self.tracks_df is None or self.tracks_df.empty:
             logger.error("No tracks data to merge genres with")
             return False
@@ -186,12 +190,11 @@ class DataProcessor:
             how='left'
         )
         
+        # **CLEAN ARTIST_POPULARITY COLUMNS NGAY TẠI ĐÂY**
+        self._clean_artist_popularity_columns(merged_df)
+        
         # Điền missing values
         merged_df['artist_genres'] = merged_df['artist_genres'].fillna('')
-        if 'artist_popularity' in merged_df.columns:
-            merged_df['artist_popularity'] = merged_df['artist_popularity'].fillna(
-                merged_df['popularity'] if 'popularity' in merged_df.columns else 50
-            )
         if 'artist_followers' in merged_df.columns:
             merged_df['artist_followers'] = merged_df['artist_followers'].fillna(0)
         
@@ -202,6 +205,37 @@ class DataProcessor:
         logger.info(f"Merged artist genres: {initial_count} tracks -> {merged_count} tracks")
         
         return True
+
+    def _clean_artist_popularity_columns(self, df):
+        """Clean artist_popularity columns - chỉ giữ data có nghĩa từ artist_genres.csv"""
+        
+        # Step 1: Xác định cột artist_popularity có nghĩa
+        meaningful_col = None
+        if 'artist_popularity_y' in df.columns:
+            meaningful_col = 'artist_popularity_y'
+            logger.info("Found artist_popularity_y - using as primary artist_popularity")
+        elif 'artist_popularity' in df.columns:
+            meaningful_col = 'artist_popularity'
+            logger.info("Found artist_popularity - using as primary")
+        
+        # Step 2: Tạo cột artist_popularity cuối cùng
+        if meaningful_col:
+            df['artist_popularity'] = df[meaningful_col].fillna(50)  # Default value
+            logger.info(f"Set artist_popularity from {meaningful_col}")
+        else:
+            df['artist_popularity'] = 50  # Default for all
+            logger.warning("No meaningful artist_popularity found, using default value 50")
+        
+        # Step 3: Xóa TẤT CẢ các variant columns
+        cols_to_drop = [col for col in df.columns 
+                       if col.startswith('artist_popularity_')]
+        
+        if cols_to_drop:
+            df.drop(columns=cols_to_drop, inplace=True)
+            logger.info(f"Dropped artist_popularity variants: {cols_to_drop}")
+        
+        logger.info("Artist popularity columns cleaned successfully")
+        return df
     
     def extract_release_year(self):
         """Extract release year from release date"""

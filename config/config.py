@@ -51,12 +51,12 @@ TRACKS_PER_QUERY = 30  # Số lượng bài hát thu thập cho mỗi query
 MAX_RECOMMENDATIONS = 20  # Số lượng khuyến nghị tối đa
 
 # Cài đặt thu thập dữ liệu
-DEFAULT_TRACKS_PER_QUERY = 200  # Số lượng bài hát mặc định cho mỗi truy vấn
-MAX_TRACKS_PER_QUERY = 1000     # Giới hạn tối đa số bài hát mỗi truy vấn
+DEFAULT_TRACKS_PER_QUERY = 120  # Số lượng bài hát mặc định cho mỗi truy vấn
+MAX_TRACKS_PER_QUERY = 800     # Giới hạn tối đa số bài hát mỗi truy vấn
 MIN_TRACKS_PER_QUERY = 5       # Giới hạn tối thiểu số bài hát mỗi truy vấn
 TRACKS_QUERY_STEP = 5          # Bước nhảy cho thanh trượt
 
 # Cài đặt cho bộ dữ liệu lớn
 LARGE_DATASET_DEFAULT_SIZE = 20000  # Kích thước mặc định cho tập dữ liệu lớn
 LARGE_DATASET_BATCH_SIZE = 200      # Số lượng truy vấn mỗi lô
-LARGE_DATASET_SAVE_INTERVAL = 2000  # Lưu sau mỗi bao nhiêu bài hát
+LARGE_DATASET_SAVE_INTERVAL = 2500  # Lưu sau mỗi bao nhiêu bài hát

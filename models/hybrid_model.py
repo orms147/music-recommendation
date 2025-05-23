@@ -54,20 +54,27 @@ class MetadataRecommender(BaseRecommender):
                 )
                 
                 if not recommendations.empty:
+                    # KHÔNG CẦN clean nữa vì đã clean trong DataProcessor
                     return recommendations
+                    
             except Exception as e:
                 logger.error(f"Error generating content-based recommendations: {e}")
         
-        # Fallback to random recommendations if nothing found
+        # Fallback logic...
         logger.warning("No recommendations were generated, using fallback")
         if hasattr(self, 'tracks_df') and self.tracks_df is not None:
             sample_size = min(n_recommendations, len(self.tracks_df))
             random_tracks = self.tracks_df.sample(sample_size)
-            random_tracks['content_score'] = 0.5  # Medium confidence
-            return random_tracks[['id', 'name', 'artist', 'content_score']]
+            random_tracks['content_score'] = 0.5
+            
+            # Chọn các cột cần thiết (artist_popularity đã clean)
+            result_cols = ['name', 'artist', 'content_score', 'popularity', 'artist_popularity', 'release_year']
+            available_cols = [col for col in result_cols if col in random_tracks.columns]
+            
+            return random_tracks[available_cols]
         else:
             return pd.DataFrame()
-    
+
     def generate_playlist_from_seed(self, seed_track, seed_artist="", n_recommendations=10):
         """Generate a playlist from a seed track"""
         try:
@@ -97,18 +104,67 @@ class MetadataRecommender(BaseRecommender):
                 logger.warning("Queue is empty after filtering by track_ids.")
                 return None, None
             
+            # KHÔNG CẦN clean artist_popularity nữa
+            
             # Đảm bảo thứ tự trong queue
             queue['order'] = queue['id'].apply(lambda x: track_ids.index(x) if x in track_ids else 999)
             queue = queue.sort_values('order').drop('order', axis=1)
             
-            # Tạo phân tích - Thay thế bằng thông tin về nghệ sĩ và thể loại
+            # Tạo phân tích
             analysis = self._analyze_artist_genres(queue)
             
             return queue, analysis
         except Exception as e:
             logger.error(f"Error generating playlist: {e}")
             return None, None
+
+    def explore_by_genre(self, genre, n_recommendations=10):
+        """Khám phá bài hát theo thể loại"""
+        if not self.is_trained:
+            logger.error("Model not trained. Please train the model first.")
+            return pd.DataFrame()
             
+        # Kiểm tra nếu có cột thể loại
+        genre_col = None
+        for col in self.tracks_df.columns:
+            if f'genre_{genre.lower().replace(" ", "_")}' == col:
+                genre_col = col
+                break
+        
+        # Nếu có cột thể loại, lọc theo giá trị
+        if genre_col is not None:
+            filtered = self.tracks_df[self.tracks_df[genre_col] > 0]
+        else:
+            # Tìm thể loại trong cột artist_genres nếu có
+            if 'artist_genres' in self.tracks_df.columns:
+                genre_keyword = genre.lower()
+                filtered = self.tracks_df[self.tracks_df['artist_genres'].str.contains(
+                    genre_keyword, case=False, na=False)]
+            else:
+                # Tìm kiếm trong tên bài hát và nghệ sĩ
+                filtered = self.tracks_df[
+                    self.tracks_df['name'].str.contains(genre, case=False, na=False) |
+                    self.tracks_df['artist'].str.contains(genre, case=False, na=False)
+                ]
+        
+        if filtered.empty:
+            logger.warning(f"No tracks found for genre: {genre}")
+            return pd.DataFrame()
+            
+        # Sắp xếp theo độ phổ biến
+        if 'popularity' in filtered.columns:
+            filtered = filtered.sort_values('popularity', ascending=False)
+            
+        # Lấy số lượng khuyến nghị
+        result = filtered.head(n_recommendations)
+        result['content_score'] = 1.0  # Điểm cao vì khớp chính xác thể loại
+        
+        # Chọn các cột cần thiết (artist_popularity đã clean)
+        result_cols = ['name', 'artist', 'content_score', 'popularity', 'artist_popularity']
+        available_cols = [col for col in result_cols if col in result.columns]
+        
+        return result[available_cols]
+    
     def _analyze_artist_genres(self, playlist_df):
         """Tạo phân tích về phân bố thể loại và nghệ sĩ trong playlist"""
         analysis = []
@@ -166,46 +222,3 @@ class MetadataRecommender(BaseRecommender):
             })
             
         return pd.DataFrame(analysis)
-    
-    def discover_by_genre(self, genre, n_recommendations=10):
-        """Khám phá bài hát theo thể loại"""
-        if not self.is_trained:
-            logger.error("Model not trained. Please train the model first.")
-            return pd.DataFrame()
-            
-        # Kiểm tra nếu có cột thể loại
-        genre_col = None
-        for col in self.tracks_df.columns:
-            if f'genre_{genre.lower().replace(" ", "_")}' == col:
-                genre_col = col
-                break
-        
-        # Nếu có cột thể loại, lọc theo giá trị
-        if genre_col is not None:
-            filtered = self.tracks_df[self.tracks_df[genre_col] > 0]
-        else:
-            # Tìm thể loại trong cột artist_genres nếu có
-            if 'artist_genres' in self.tracks_df.columns:
-                genre_keyword = genre.lower()
-                filtered = self.tracks_df[self.tracks_df['artist_genres'].str.contains(
-                    genre_keyword, case=False, na=False)]
-            else:
-                # Tìm kiếm trong tên bài hát và nghệ sĩ
-                filtered = self.tracks_df[
-                    self.tracks_df['name'].str.contains(genre, case=False, na=False) |
-                    self.tracks_df['artist'].str.contains(genre, case=False, na=False)
-                ]
-        
-        if filtered.empty:
-            logger.warning(f"No tracks found for genre: {genre}")
-            return pd.DataFrame()
-            
-        # Sắp xếp theo độ phổ biến
-        if 'popularity' in filtered.columns:
-            filtered = filtered.sort_values('popularity', ascending=False)
-            
-        # Lấy số lượng khuyến nghị
-        result = filtered.head(n_recommendations)
-        result['content_score'] = 1.0  # Điểm cao vì khớp chính xác thể loại
-        
-        return result[['id', 'name', 'artist', 'content_score']]

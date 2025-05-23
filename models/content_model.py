@@ -7,6 +7,7 @@ from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 from models.base_model import BaseRecommender
 from config.config import CONTENT_FEATURES
+from scipy import sparse
 
 logger = logging.getLogger(__name__)
 
@@ -33,21 +34,34 @@ class ContentBasedRecommender(BaseRecommender):
         metadata_features = [
             # Các đặc trưng cơ bản
             'popularity', 'explicit', 'release_year', 'decade', 
-            'duration_min', 'artist_popularity', 'artist_frequency',
+            'duration_min', 'artist_frequency',
             
             # Đặc trưng chuyển đổi 
             'is_vietnamese', 'is_korean', 'is_japanese', 'is_spanish',
             'has_collab', 'is_remix',
             
-            # Thể loại
+            # Thể loại cũ
             'genre_pop', 'genre_rock', 'genre_hip_hop', 'genre_rap', 
             'genre_electronic', 'genre_dance', 'genre_r&b', 'genre_indie', 
             'genre_classical', 'genre_jazz', 'genre_country', 'genre_folk', 
-            'genre_metal', 'genre_blues'
+            'genre_metal', 'genre_blues',
+            
+            # Thể loại mới từ queries đã cập nhật
+            'genre_v-pop', 'genre_vietnamese_hip_hop', 'genre_vietnam_indie',
+            'genre_vinahouse', 'genre_vietnamese_lo-fi', 'genre_k-pop', 
+            'genre_j-pop', 'genre_c-pop', 'genre_mandopop', 'genre_lo-fi',
+            'genre_lo-fi_beats', 'genre_edm', 'genre_bossa_nova',
+            'genre_chamber_music', 'genre_opera', 'genre_requiem'
         ]
         
         # Lọc các đặc trưng có sẵn
         available_features = [f for f in metadata_features if f in self.tracks_df.columns]
+        
+        # Thêm artist_popularity (bất kể tên gì sau khi merge)
+        for col in ['artist_popularity', 'artist_popularity_x', 'artist_popularity_y']:
+            if col in self.tracks_df.columns:
+                available_features.append(col)
+                break
         
         # Thêm các đặc trưng audio tổng hợp nếu có
         synthetic_audio = [
@@ -156,6 +170,16 @@ class ContentBasedRecommender(BaseRecommender):
         recommendations = self.tracks_df.iloc[track_indices][['name', 'artist']].copy()
         recommendations['content_score'] = [i[1] for i in sim_scores]
         
+        # Thêm các cột bổ sung nếu có
+        additional_cols = ['popularity', 'release_year']
+        for col in additional_cols:
+            if col in self.tracks_df.columns:
+                recommendations[col] = self.tracks_df.iloc[track_indices][col].values
+        
+        # Thêm artist_popularity (đã clean trong DataProcessor)
+        if 'artist_popularity' in self.tracks_df.columns:
+            recommendations['artist_popularity'] = self.tracks_df.iloc[track_indices]['artist_popularity'].values
+        
         return recommendations
     
     def recommend_queue(self, seed_tracks, n_total=10):
@@ -208,13 +232,16 @@ class ContentBasedRecommender(BaseRecommender):
             combined = combined.drop_duplicates(subset=['id'])
             
             # Remove tracks that are already in seeds
-            combined = combined[~combined['id'].isin(seed_ids)]
-            
-            # Take top n_needed recommendations
-            top_recs = combined.head(n_needed)
-            
-            # Add to seed tracks
-            final_ids = seed_ids + top_recs['id'].tolist()
+            if 'id' in combined.columns:
+                combined = combined[~combined['id'].isin(seed_ids)]
+                # Take top n_needed recommendations
+                top_recs = combined.head(n_needed)
+                # Add to seed tracks
+                final_ids = seed_ids + top_recs['id'].tolist()
+            else:
+                # Nếu không có cột id, dùng index
+                top_recs = combined.head(n_needed)
+                final_ids = seed_ids + top_recs.index.tolist()
             
             return final_ids
         

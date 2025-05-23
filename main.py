@@ -132,47 +132,43 @@ def recommend_similar(song_name, artist_name="", n=10):
     if weighted_model is None or not weighted_model.is_trained:
         return "⚠️ Mô hình Weighted chưa được huấn luyện. Vui lòng huấn luyện mô hình trước."
     try:
+        # Kiểm tra xem bài hát có tồn tại trong dữ liệu không
+        processed_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
+        if os.path.exists(processed_path):
+            tracks_df = pd.read_csv(processed_path)
+            
+            # Tìm bài hát gốc trong dữ liệu
+            mask = tracks_df['name'].str.lower().str.strip() == song_name.lower().strip()
+            if artist_name:
+                mask = mask & (tracks_df['artist'].str.lower().str.strip() == artist_name.lower().strip())
+            
+            found_tracks = tracks_df[mask]
+            
+            if found_tracks.empty:
+                return f"❌ Không tìm thấy bài hát **{song_name}** (nghệ sĩ: {artist_name}) trong dữ liệu. Vui lòng kiểm tra lại tên bài hát và nghệ sĩ!"
+        
+        # Thực hiện đề xuất
         rec1 = model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
         rec2 = weighted_model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
-        # Kiểm tra nếu cả hai model đều trả về random (không tìm thấy bài hát)
-        not_found1 = isinstance(rec1, pd.DataFrame) and song_name.lower().strip() not in rec1['name'].str.lower().str.strip().values
-        not_found2 = isinstance(rec2, pd.DataFrame) and song_name.lower().strip() not in rec2['name'].str.lower().str.strip().values
-        if (isinstance(rec1, str) and "not found" in rec1.lower()) or (isinstance(rec2, str) and "not found" in rec2.lower()) or (not_found1 and not_found2):
-            return f"❌ Không tìm thấy bài hát **{song_name}** (nghệ sĩ: {artist_name}) trong dữ liệu. Vui lòng kiểm tra lại tên bài hát và nghệ sĩ!"
+        
+        # Hiển thị kết quả
         result = "### Đề xuất theo MetadataRecommender:\n"
         if isinstance(rec1, str):
             result += rec1 + "\n"
         else:
             result += rec1.to_markdown(index=False) + "\n"
+        
         result += "\n---\n### Đề xuất theo WeightedContentRecommender:\n"
         if isinstance(rec2, str):
             result += rec2
         else:
             result += rec2.to_markdown(index=False)
+        
         return result
+        
     except Exception as e:
         logging.error(f"Lỗi khi đề xuất: {e}")
         return f"❌ Lỗi khi đề xuất: {str(e)}"
-
-def generate_playlist(seed_track, seed_artist="", queue_length=10):
-    global model
-    if model is None or not model.is_trained:
-        return "⚠️ Vui lòng huấn luyện mô hình trước."
-    try:
-        playlist, analysis = model.generate_playlist_from_seed(seed_track, seed_artist, queue_length)
-        if playlist is None or playlist.empty:
-            return f"❌ Không tìm thấy bài hát **{seed_track}** (nghệ sĩ: {seed_artist}) trong dữ liệu. Vui lòng kiểm tra lại tên bài hát và nghệ sĩ!"
-        result = "## Playlist đề xuất:\n"
-        for i, row in enumerate(playlist.itertuples(), 1):
-            result += f"{i}. **{row.name}** - {row.artist}\n"
-        if analysis is not None and not analysis.empty:
-            result += "\n### Phân tích chuyển tiếp:\n"
-            for i, row in analysis.iterrows():
-                result += f"{i+1}. {row['from_track']} → {row['to_track']}: {row['quality']} ({row['transition_score']:.2f})\n"
-        return result
-    except Exception as e:
-        logger.error(f"Lỗi tạo playlist: {e}\n{traceback.format_exc()}")
-        return f"❌ Lỗi tạo playlist: {e}"
 
 def discover_by_genre(genre, n=10):
     global model
@@ -219,15 +215,6 @@ def create_ui():
             rec_btn = gr.Button("Đề xuất")
             rec_output = gr.Markdown()
             rec_btn.click(fn=recommend_similar, inputs=[song_input, artist_input, n_similar], outputs=rec_output)
-
-        with gr.Tab("Tạo playlist"):
-            gr.Markdown("### Tạo playlist từ bài hát gốc")
-            seed_song = gr.Textbox(label="Tên bài hát gốc")
-            seed_artist = gr.Textbox(label="Tên nghệ sĩ (tùy chọn)")
-            playlist_len = gr.Slider(5, 20, value=10, step=1, label="Độ dài playlist")
-            playlist_btn = gr.Button("Tạo playlist")
-            playlist_output = gr.Markdown()
-            playlist_btn.click(fn=generate_playlist, inputs=[seed_song, seed_artist, playlist_len], outputs=playlist_output)
 
         with gr.Tab("Khám phá theo thể loại"):
             gr.Markdown("### Khám phá âm nhạc theo thể loại")
