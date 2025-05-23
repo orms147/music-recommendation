@@ -27,23 +27,16 @@ CONTENT_WEIGHT = 1.0
 COLLABORATIVE_WEIGHT = 0.0  # Không sử dụng collaborative filtering
 SEQUENCE_WEIGHT = 0.0  # Không sử dụng sequence/transition model
 
-# Content features từ metadata
+# Content features - CHỈ SỬ DỤNG REAL METADATA
 CONTENT_FEATURES = [
-    # Đặc trưng cơ bản
-    'popularity', 'explicit', 'release_year', 'decade',
-    'duration_min', 'duration_category', 'popularity_category',
-    'artist_frequency', 'artist_popularity',
-    
-    # Đặc trưng ngôn ngữ và văn hóa
-    'is_vietnamese', 'is_korean', 'is_japanese', 'is_spanish',
-    
-    # Đặc trưng bài hát
-    'has_collab', 'is_remix',
-    
-    # Đặc trưng thể loại
-    'genre_pop', 'genre_rock', 'genre_hip_hop', 'genre_rap',
-    'genre_electronic', 'genre_dance', 'genre_latin',
-    'genre_r&b', 'genre_indie', 'genre_classical',
+    # Real Spotify metadata features only
+    'popularity', 'duration_ms', 'explicit', 'release_year',
+    'artist_popularity', 'total_tracks', 'track_number', 'disc_number',
+    'markets_count', 'album_type_encoded', 'duration_category_encoded',
+    'popularity_category_encoded', 'is_vietnamese', 'is_korean', 
+    'is_japanese', 'is_spanish', 'has_collab', 'is_remix',
+    'name_length', 'artist_frequency_norm'
+    # LOẠI BỎ: 'danceability', 'energy', 'valence', 'tempo', etc.
 ]
 
 # System settings

@@ -19,7 +19,7 @@ class DataProcessor:
         self.user_item_matrix = None
     
     def load_data(self):
-        """Load raw data from files"""
+        """Load raw data from files - focus on real metadata only"""
         # Đọc dữ liệu bài hát
         tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks.csv')
         enriched_path = os.path.join(RAW_DATA_DIR, 'enriched_tracks.csv')
@@ -35,7 +35,10 @@ class DataProcessor:
             logger.warning(f"Track data files not found")
             self.tracks_df = pd.DataFrame()
         
-        # Đọc thông tin thể loại nghệ sĩ
+        # LOẠI BỎ audio_features loading vì Spotify đã chặn
+        # self.audio_features_df = None  # Không sử dụng
+        
+        # Đọc thông tin thể loại nghệ sĩ (vẫn còn available)
         genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
         if os.path.exists(genres_path):
             self.artist_genres_df = pd.read_csv(genres_path)
@@ -43,6 +46,13 @@ class DataProcessor:
         else:
             logger.warning(f"Artist genres file not found: {genres_path}")
             self.artist_genres_df = pd.DataFrame()
+        
+        # Log available real features
+        if not self.tracks_df.empty:
+            real_features = ['popularity', 'duration_ms', 'explicit', 'release_year', 
+                           'album_type', 'total_tracks', 'track_number', 'markets_count']
+            available_features = [f for f in real_features if f in self.tracks_df.columns]
+            logger.info(f"Available real Spotify features: {available_features}")
         
         return True
     
@@ -83,75 +93,32 @@ class DataProcessor:
         return True
     
     def create_synthetic_audio_features(self):
-        """Create synthetic audio features when real ones aren't available"""
+        """Skip creating synthetic audio features - focus on real metadata only"""
         if self.tracks_df is None or self.tracks_df.empty:
-            logger.error("No tracks data to create synthetic features for")
+            logger.error("No tracks data to check features for")
             return False
         
-        logger.info("Creating synthetic audio features")
+        logger.info("Skipping synthetic audio features - focusing on real Spotify metadata only")
         
-        # Define the audio features and their default values
-        audio_features = {
-            'danceability': 0.5,
-            'energy': 0.5,
-            'key': 0,
-            'loudness': -10,
-            'mode': 1,
-            'speechiness': 0.1,
-            'acousticness': 0.5,
-            'instrumentalness': 0.01,
-            'liveness': 0.1,
-            'valence': 0.5,
-            'tempo': 120,
-            'time_signature': 4
-        }
+        # Chỉ đảm bảo các features thiết yếu từ Spotify API có sẵn
+        essential_features = ['popularity', 'duration_ms', 'explicit']
         
-        # Check which features are already present
-        existing_features = [f for f in audio_features.keys() if f in self.tracks_df.columns]
-        missing_features = [f for f in audio_features.keys() if f not in self.tracks_df.columns]
+        for feature in essential_features:
+            if feature not in self.tracks_df.columns:
+                logger.warning(f"Missing essential feature: {feature}")
+                if feature == 'popularity':
+                    self.tracks_df[feature] = 0
+                elif feature == 'duration_ms':
+                    self.tracks_df[feature] = 200000  # 3min 20sec default
+                elif feature == 'explicit':
+                    self.tracks_df[feature] = 0
         
-        if existing_features:
-            logger.info(f"Found existing audio features: {', '.join(existing_features)}")
+        # Log real features từ Spotify metadata
+        real_spotify_features = ['popularity', 'duration_ms', 'explicit', 'release_date', 
+                               'album_type', 'total_tracks', 'track_number', 'disc_number']
+        existing_real_features = [f for f in real_spotify_features if f in self.tracks_df.columns]
         
-        if missing_features:
-            logger.info(f"Adding synthetic audio features: {', '.join(missing_features)}")
-            
-            # Add missing features with default values
-            for feature in missing_features:
-                # Set default value
-                self.tracks_df[feature] = audio_features[feature]
-                
-                # Modulate based on available data to make synthetic features more realistic
-                if feature == 'energy' and 'popularity' in self.tracks_df.columns:
-                    # Higher popularity often correlates with higher energy
-                    self.tracks_df[feature] = 0.3 + (self.tracks_df['popularity'] / 100) * 0.5
-                
-                elif feature == 'danceability' and 'duration_ms' in self.tracks_df.columns:
-                    # Shorter songs tend to be more danceable
-                    avg_duration = 3.5 * 60 * 1000  # 3.5 minutes in ms
-                    self.tracks_df[feature] = 0.5 + 0.3 * (1 - np.minimum(self.tracks_df['duration_ms'] / avg_duration, 1))
-                
-                elif feature == 'valence' and 'name' in self.tracks_df.columns:
-                    # Try to infer mood from track name
-                    happy_keywords = ['happy', 'joy', 'fun', 'party', 'love', 'dance']
-                    sad_keywords = ['sad', 'blue', 'cry', 'tear', 'alone', 'broken', 'lost']
-                    
-                    # Default valence
-                    self.tracks_df[feature] = 0.5
-                    
-                    # Check for happy keywords
-                    for keyword in happy_keywords:
-                        self.tracks_df.loc[
-                            self.tracks_df['name'].str.contains(keyword, case=False, na=False),
-                            feature
-                        ] = np.maximum(self.tracks_df[feature], 0.7)
-                    
-                    # Check for sad keywords
-                    for keyword in sad_keywords:
-                        self.tracks_df.loc[
-                            self.tracks_df['name'].str.contains(keyword, case=False, na=False),
-                            feature
-                        ] = np.minimum(self.tracks_df[feature], 0.3)
+        logger.info(f"Using {len(existing_real_features)} real Spotify metadata features: {existing_real_features}")
         
         return True
     
@@ -420,129 +387,58 @@ class DataProcessor:
         return True
     
     def normalize_features(self):
-        """Normalize numerical features"""
+        """Normalize numerical features - focus on real Spotify metadata only"""
         if self.tracks_df is None or self.tracks_df.empty:
             logger.error("No tracks data to normalize")
             return False
         
-        # Các đặc trưng số cần chuẩn hóa (bao gồm cả đặc trưng từ metadata)
-        numeric_features = [
+        # Chỉ sử dụng real metadata features từ Spotify
+        real_numeric_features = [
             'popularity', 'duration_ms', 'duration_min',
             'artist_popularity', 'artist_frequency', 'release_year',
-            'name_length', 'artist_followers'
+            'name_length', 'artist_followers', 'total_tracks', 
+            'track_number', 'disc_number'
         ]
         
-        # Thêm đặc trưng audio nếu có
-        audio_features = [
-            'danceability', 'energy', 'loudness', 'speechiness', 
-            'acousticness', 'instrumentalness', 'liveness', 'valence', 'tempo'
-        ]
+        # LOẠI BỎ hoàn toàn synthetic audio features
+        # Không thêm các features như danceability, energy, valence, etc.
         
-        numeric_features.extend([f for f in audio_features if f in self.tracks_df.columns])
-        
-        # Lọc các đặc trưng có trong DataFrame
-        features_to_normalize = [f for f in numeric_features if f in self.tracks_df.columns]
+        # Lọc các features thực sự có trong DataFrame
+        features_to_normalize = [f for f in real_numeric_features if f in self.tracks_df.columns]
         
         if not features_to_normalize:
-            logger.warning("No numeric features to normalize")
+            logger.warning("No real numeric features to normalize")
             return False
         
         # Sử dụng MinMaxScaler để chuẩn hóa về khoảng [0,1]
         scaler = MinMaxScaler()
         
-        # Tiền xử lý - thay thế giá trị NaN bằng trung bình
+        # Tiền xử lý - thay thế giá trị NaN bằng trung bình hoặc giá trị mặc định
         for feature in features_to_normalize:
             if self.tracks_df[feature].isna().any():
-                self.tracks_df[feature] = self.tracks_df[feature].fillna(self.tracks_df[feature].mean())
+                if feature in ['popularity', 'artist_popularity']:
+                    self.tracks_df[feature] = self.tracks_df[feature].fillna(0)
+                elif feature in ['total_tracks', 'track_number', 'disc_number']:
+                    self.tracks_df[feature] = self.tracks_df[feature].fillna(1)
+                else:
+                    self.tracks_df[feature] = self.tracks_df[feature].fillna(self.tracks_df[feature].median())
         
         # Chuẩn hóa
         self.tracks_df[features_to_normalize] = scaler.fit_transform(self.tracks_df[features_to_normalize])
         
-        logger.info(f"Normalized {len(features_to_normalize)} features to range [0,1]")
+        logger.info(f"Normalized {len(features_to_normalize)} real metadata features: {features_to_normalize}")
         
         return True
     
     def create_user_item_matrix(self, output_path=None):
-        """Create user-item matrix for collaborative filtering"""
-        # Nếu không có dữ liệu tương tác người dùng thực sự, tạo dữ liệu giả
-        logger.info("Creating synthetic user-item matrix")
+        """Skip creating synthetic user-item matrix - focus on content-based only"""
+        logger.info("Skipping synthetic user-item matrix - focusing on real data content-based approach")
         
-        if self.tracks_df is None or self.tracks_df.empty:
-            logger.error("No tracks data to create user-item matrix")
-            return False
-        
-        # Số lượng người dùng giả
-        num_users = 100
-        # Số lượng tương tác trung bình mỗi người dùng
-        interactions_per_user = 20
-        
-        # Tạo dữ liệu tương tác giả
-        user_data = []
-        
-        for user_id in range(1, num_users + 1):
-            # Tạo sở thích người dùng giả lập
-            # Mỗi người dùng thích một số thể loại và nghệ sĩ cụ thể
-            
-            # Lựa chọn nghệ sĩ yêu thích cho mỗi người dùng
-            if 'artist' in self.tracks_df.columns:
-                favorite_artists = np.random.choice(
-                    self.tracks_df['artist'].unique(),
-                    size=min(5, len(self.tracks_df['artist'].unique())),
-                    replace=False
-                )
-                
-                # Ưu tiên bài hát từ nghệ sĩ yêu thích
-                favorite_tracks = self.tracks_df[self.tracks_df['artist'].isin(favorite_artists)]
-                other_tracks = self.tracks_df[~self.tracks_df['artist'].isin(favorite_artists)]
-                
-                # Số lượng bài favorite vs other
-                fav_count = min(int(interactions_per_user * 0.7), len(favorite_tracks))
-                other_count = min(interactions_per_user - fav_count, len(other_tracks))
-                
-                # Lấy mẫu
-                if fav_count > 0:
-                    fav_sample = favorite_tracks.sample(n=fav_count)
-                else:
-                    fav_sample = pd.DataFrame()
-                    
-                if other_count > 0:
-                    other_sample = other_tracks.sample(n=other_count)
-                else:
-                    other_sample = pd.DataFrame()
-                
-                user_tracks = pd.concat([fav_sample, other_sample])
-            else:
-                # Nếu không có cột artist, lấy mẫu ngẫu nhiên
-                sample_size = min(interactions_per_user, len(self.tracks_df))
-                user_tracks = self.tracks_df.sample(n=sample_size)
-            
-            # Tạo điểm số - cao hơn cho bài hát từ nghệ sĩ yêu thích
-            for _, track in user_tracks.iterrows():
-                is_favorite = 'artist' in self.tracks_df.columns and track['artist'] in favorite_artists
-                rating = np.random.randint(4, 6) if is_favorite else np.random.randint(1, 6)
-                
-                user_data.append({
-                    'user_id': f"user_{user_id}",
-                    'track_id': track['id'],
-                    'rating': rating
-                })
-        
-        # Tạo DataFrame
-        interactions_df = pd.DataFrame(user_data)
-        
-        # Tạo ma trận user-item
-        user_item_df = interactions_df.pivot(
-            index='user_id',
-            columns='track_id',
-            values='rating'
-        ).fillna(0)
-        
-        # Lưu ma trận nếu có đường dẫn
+        # Tạo ma trận rỗng minimal để tương thích
         if output_path:
-            user_item_df.to_csv(output_path)
-            logger.info(f"Saved user-item matrix with {len(user_item_df)} users and {len(user_item_df.columns)} tracks")
-        
-        self.user_item_matrix = user_item_df
+            minimal_df = pd.DataFrame({'info': ['No synthetic user data - using content-based approach only']})
+            minimal_df.to_csv(output_path, index=False)
+            logger.info("Created placeholder user-item file for compatibility")
         
         return True
     

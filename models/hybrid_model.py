@@ -18,33 +18,39 @@ class MetadataRecommender(BaseRecommender):
         self.tracks_df = None
     
     def train(self, tracks_df, user_item_matrix=None):
-        """Train model components"""
+        """Train model components with real metadata focus"""
         start_time = datetime.now()
         
         # Save tracks_df for use during recommendation
         self.tracks_df = tracks_df
         
-        logger.info(f"Columns in tracks_df: {self.tracks_df.columns}")
+        logger.info(f"Training with real metadata features. Columns available: {len(self.tracks_df.columns)}")
         
-        # Train content-based model
-        logger.info("Training content-based recommender...")
+        # Count real vs derived features
+        real_spotify_features = ['popularity', 'duration_ms', 'explicit', 'release_year', 
+                               'album_type', 'total_tracks', 'track_number', 'artist_popularity']
+        real_count = sum(1 for f in real_spotify_features if f in self.tracks_df.columns)
+        logger.info(f"Using {real_count}/{len(real_spotify_features)} direct Spotify metadata features")
+        
+        # Train content-based model with real metadata
+        logger.info("Training content-based recommender with real metadata...")
         self.content_recommender.train(tracks_df)
         
         self.train_time = datetime.now() - start_time
-        logger.info(f"Metadata model trained in {self.train_time.total_seconds():.2f} seconds")
+        logger.info(f"Real metadata model trained in {self.train_time.total_seconds():.2f} seconds")
         
         self.is_trained = True
         return True
     
     def recommend(self, track_name=None, artist=None, n_recommendations=10):
-        """Generate track recommendations"""
+        """Generate track recommendations using real metadata"""
         if not self.is_trained:
             logger.error("Model not trained. Please train the model first.")
             return pd.DataFrame()
         
         n_recommendations = min(n_recommendations, len(self.tracks_df) - 1) if self.tracks_df is not None else n_recommendations
         
-        # Content-based recommendations
+        # Content-based recommendations using real metadata
         if track_name is not None:
             try:
                 recommendations = self.content_recommender.recommend(
@@ -54,20 +60,22 @@ class MetadataRecommender(BaseRecommender):
                 )
                 
                 if not recommendations.empty:
-                    # KHÔNG CẦN clean nữa vì đã clean trong DataProcessor
+                    # Log recommendation quality
+                    avg_score = recommendations['content_score'].mean() if 'content_score' in recommendations.columns else 0
+                    logger.info(f"Generated {len(recommendations)} recommendations using real metadata (avg score: {avg_score:.3f})")
                     return recommendations
                     
             except Exception as e:
-                logger.error(f"Error generating content-based recommendations: {e}")
+                logger.error(f"Error generating metadata-based recommendations: {e}")
         
-        # Fallback logic...
-        logger.warning("No recommendations were generated, using fallback")
+        # Fallback với real metadata
+        logger.warning("Using fallback recommendations with real metadata")
         if hasattr(self, 'tracks_df') and self.tracks_df is not None:
             sample_size = min(n_recommendations, len(self.tracks_df))
             random_tracks = self.tracks_df.sample(sample_size)
             random_tracks['content_score'] = 0.5
             
-            # Chọn các cột cần thiết (artist_popularity đã clean)
+            # Chọn các cột real metadata
             result_cols = ['name', 'artist', 'content_score', 'popularity', 'artist_popularity', 'release_year']
             available_cols = [col for col in result_cols if col in random_tracks.columns]
             

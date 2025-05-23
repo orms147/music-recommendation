@@ -25,7 +25,7 @@ class BaseRecommender(ABC):
         pass
     
     def recommend(self, track_name=None, track_id=None, artist=None, n_recommendations=10):
-        """Recommend tracks similar to the input track with stable behavior"""
+        """Recommend tracks similar to the input track using real metadata"""
         if not self.is_trained:
             logger.error("Model not trained. Please train the model first.")
             return pd.DataFrame()
@@ -37,12 +37,10 @@ class BaseRecommender(ABC):
         
         # If track not found, return random recommendations as fallback
         if track_idx is None:
-            logger.warning(f"Track not found: '{track_name}' by {artist}. Returning random recommendations.")
-            # Đặt seed cố định cho random để đảm bảo ổn định giữa các lần gọi với cùng input
+            logger.warning(f"Track not found: '{track_name}' by {artist}. Returning random recommendations with real metadata.")
+            # Đặt seed cố định cho random để đảm bảo ổn định
             seed = 0
             if track_name:
-                # Tạo seed từ tên bài hát để duy trì tính ngẫu nhiên giữa các bài hát khác nhau
-                # nhưng đảm bảo ổn định cho cùng 1 bài
                 seed = sum(ord(c) for c in track_name)
             np.random.seed(seed)
             
@@ -54,12 +52,18 @@ class BaseRecommender(ABC):
             )
             recommendations = self.tracks_df.iloc[sample_indices][['id', 'name', 'artist']].copy()
             recommendations['content_score'] = 0.5  # Baseline score
+            
+            # Thêm real metadata columns nếu có
+            for col in ['popularity', 'artist_popularity', 'release_year']:
+                if col in self.tracks_df.columns:
+                    recommendations[col] = self.tracks_df.iloc[sample_indices][col].values
+            
             return recommendations
         
-        # Get similarity scores
+        # Get similarity scores using real metadata features
         sim_scores = list(enumerate(self.similarity_matrix[track_idx]))
         
-        # Sort by similarity score first, then by index for stability when scores are equal
+        # Sort by similarity score first, then by index for stability
         sim_scores = sorted(sim_scores, key=lambda x: (x[1], -x[0]), reverse=True)
         
         # Exclude the input track
@@ -72,10 +76,15 @@ class BaseRecommender(ABC):
         recommendations = self.tracks_df.iloc[track_indices][['id', 'name', 'artist']].copy()
         recommendations['content_score'] = [i[1] for i in sim_scores]
         
+        # Thêm real metadata columns
+        for col in ['popularity', 'artist_popularity', 'release_year']:
+            if col in self.tracks_df.columns:
+                recommendations[col] = self.tracks_df.iloc[track_indices][col].values
+        
         # Log metrics
         avg_score = recommendations['content_score'].mean()
-        logger.info(f"Generated {len(recommendations)} recommendations for '{track_name}' by {artist}")
-        logger.info(f"Average content score: {avg_score:.4f}")
+        logger.info(f"Generated {len(recommendations)} real metadata-based recommendations for '{track_name}'")
+        logger.info(f"Average similarity score: {avg_score:.4f}")
         
         return recommendations
     

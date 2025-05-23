@@ -39,41 +39,46 @@ class SpotifyDataFetcher:
             raise
 
     def _extract_track_data(self, track):
-        """Extract relevant metadata from a track object"""
+        """Extract all available real metadata from Spotify API"""
         try:
-            # Thêm nhiều thông tin hơn từ metadata có sẵn
-            album_type = track['album']['album_type'] if 'album' in track else None
-            total_tracks = track['album']['total_tracks'] if 'album' in track else None
+            # Trích xuất TẤT CẢ metadata có sẵn từ Spotify
+            album_info = track.get('album', {})
             
-            # Lấy thông tin tất cả nghệ sĩ, không chỉ nghệ sĩ đầu tiên
+            # Lấy thông tin tất cả nghệ sĩ
             artists = ", ".join([artist['name'] for artist in track['artists']]) if track['artists'] else "Unknown"
             
             # Trích xuất năm phát hành
-            release_date = track['album']['release_date'] if 'album' in track else None
+            release_date = album_info.get('release_date', '')
             release_year = None
             if release_date:
                 try:
-                    # Xử lý cả ngày đầy đủ và chỉ năm
                     if len(release_date) >= 4:
                         release_year = int(release_date[:4])
                 except:
                     pass
             
+            # Trích xuất NHIỀU metadata hơn từ Spotify
             return {
                 'id': track['id'],
                 'name': track['name'],
                 'artist': artists,
                 'artist_id': track['artists'][0]['id'] if track['artists'] else None,
-                'album': track['album']['name'] if 'album' in track else None,
-                'album_type': album_type,
-                'total_tracks': total_tracks,
-                'popularity': track['popularity'],
-                'duration_ms': track['duration_ms'],
-                'explicit': int(track['explicit']),
+                'album': album_info.get('name', ''),
+                'album_id': album_info.get('id', ''),
+                'album_type': album_info.get('album_type', ''),
+                'total_tracks': album_info.get('total_tracks', 0),
+                'popularity': track.get('popularity', 0),
+                'duration_ms': track.get('duration_ms', 0),
+                'explicit': int(track.get('explicit', False)),
                 'release_date': release_date,
                 'release_year': release_year,
-                'track_number': track.get('track_number'),
-                'disc_number': track.get('disc_number')
+                'track_number': track.get('track_number', 1),
+                'disc_number': track.get('disc_number', 1),
+                'preview_url': track.get('preview_url', ''),  # URL preview 30s
+                'external_urls': track.get('external_urls', {}).get('spotify', ''),  # Spotify URL
+                'is_local': track.get('is_local', False),
+                'is_playable': track.get('is_playable', True),
+                'markets_count': len(track.get('available_markets', [])) if 'available_markets' in track else 0
             }
         except Exception as e:
             logger.warning(f"Error extracting track data: {e}")
@@ -261,45 +266,27 @@ class SpotifyDataFetcher:
 
 # Hàm cấp cao để lấy dữ liệu ban đầu
 def fetch_initial_dataset(tracks_per_query=DEFAULT_TRACKS_PER_QUERY):
-    """Fetch an initial dataset focusing on metadata only"""
+    """Fetch initial dataset with focus on real Spotify metadata"""
     # Create fetcher
     fetcher = SpotifyDataFetcher()
     
-    # Define diverse search queries
+    # Keep existing diverse queries but focus on real data
     queries = [
-    # 🎵 Grammy & Billboard (Top-quality music)
-    'grammy winners 2023', 'grammy winners 2022', 'grammy winners 2021',
-    'billboard hot 100 2024', 'billboard hot 100 2023', 'billboard hot 100 2022',
-    'top global songs 2024', 'top global songs 2023',
-
-    # 🇯🇵 Japan (J-Pop, Anime, Official)
-    'j-pop top hits 2024', 'official japanese music 2024', 'j-pop 2023', 'japan top songs',
-
-    # 🇻🇳 Vietnam (V-Pop)
-    'v-pop top hits 2024', 'vietnamese chart songs 2023', 'vietnamese pop official',
-
-    # 🇰🇷 Korea (K-Pop)
-    'k-pop top hits 2024', 'korean top charts 2023', 'k-pop 2022', 'korean music official',
-
-    # 🇺🇸 US-UK (Mainstream)
-    'us top 100 songs 2024', 'uk top 100 songs 2024', 'us pop 2023', 'uk chart 2023',
-
-    # 🇨🇳 China (C-Pop, Mandopop)
-    'c-pop top songs 2024', 'mandopop 2023', 'chinese pop official', 'chinese music charts',
-
-    # 🎤 Rap (mainstream, award-winning)
-    'top rap songs 2024', 'rap billboard 2023', 'famous hip hop tracks', 'grammy rap songs',
-
-    # 🎧 EDM (non-remix, mainstream)
-    'top edm songs 2024', 'famous edm tracks', 'edm billboard 2023', 'edm festival anthems',
-
-    # 🎷 Other high-quality genres
-    'jazz standards', 'blues originals', 'country top 2023', 'indie top songs 2023'
+        # High-quality, official sources
+        'grammy winners 2023', 'grammy winners 2022', 'grammy winners 2021',
+        'billboard hot 100 2024', 'billboard hot 100 2023', 'billboard hot 100 2022',
+        'top global songs 2024', 'top global songs 2023',
+        'j-pop top hits 2024', 'official japanese music 2024',
+        'v-pop top hits 2024', 'vietnamese chart songs 2023',
+        'k-pop top hits 2024', 'korean top charts 2023',
+        'us top 100 songs 2024', 'uk top 100 songs 2024',
+        'c-pop top songs 2024', 'mandopop 2023',
+        'top rap songs 2024', 'rap billboard 2023',
+        'top edm songs 2024', 'famous edm tracks',
+        'jazz standards', 'blues originals', 'country top 2023', 'indie top songs 2023'
     ]
-
-
     
-    # 1. Fetch basic track data
+    # 1. Fetch track metadata (NO audio features)
     tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks.csv')
     tracks_df = fetcher.fetch_tracks_by_search(queries, tracks_per_query=tracks_per_query, save_path=tracks_path)
     
@@ -307,17 +294,17 @@ def fetch_initial_dataset(tracks_per_query=DEFAULT_TRACKS_PER_QUERY):
         logger.error("Failed to fetch tracks data")
         return None
     
-    # 2. Fetch artist genres
+    # 2. Fetch artist genres (still available)
     if 'artist_id' in tracks_df.columns:
         artist_ids = tracks_df['artist_id'].dropna().unique().tolist()
         artist_genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
         fetcher.fetch_artist_genres(artist_ids, save_path=artist_genres_path)
     
-    # 3. Enrich track data with additional features
+    # 3. Enrich with derived features from existing metadata
     enriched_tracks_path = os.path.join(RAW_DATA_DIR, 'enriched_tracks.csv')
     fetcher.enrich_track_data(tracks_df, save_path=enriched_tracks_path)
     
-    logger.info("Initial dataset fetched successfully")
+    logger.info("Initial dataset with real Spotify metadata fetched successfully")
     return tracks_df
 
 def fetch_large_dataset(target_size=100000, batch_size=LARGE_DATASET_BATCH_SIZE, save_interval=LARGE_DATASET_SAVE_INTERVAL):

@@ -17,7 +17,7 @@ from config.config import (
 from utils.data_fetcher import fetch_initial_dataset
 from utils.data_processor import DataProcessor
 from models.hybrid_model import MetadataRecommender
-from models.weighted_content_model import WeightedContentRecommender  # Thêm dòng này
+from models.weighted_content_model import WeightedContentRecommender
 
 # Thiết lập logging
 logging.basicConfig(level=logging.INFO)
@@ -28,7 +28,7 @@ load_dotenv(dotenv_path=Path(__file__).parent / '.env')
 
 # Biến toàn cục cho model
 model = None
-weighted_model = None  # Thêm biến cho model mới
+weighted_model = None
 
 def initialize_model():
     """Khởi tạo model khi khởi động ứng dụng"""
@@ -126,11 +126,13 @@ def train_model():
         return f"Lỗi khi huấn luyện mô hình: {str(e)}"
 
 def recommend_similar(song_name, artist_name="", n=10):
+    """Đề xuất bài hát tương tự dựa trên real metadata"""
     global model, weighted_model
     if model is None or not model.is_trained:
         return "⚠️ Mô hình Metadata chưa được huấn luyện. Vui lòng huấn luyện mô hình trước."
     if weighted_model is None or not weighted_model.is_trained:
         return "⚠️ Mô hình Weighted chưa được huấn luyện. Vui lòng huấn luyện mô hình trước."
+    
     try:
         # Kiểm tra xem bài hát có tồn tại trong dữ liệu không
         processed_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
@@ -145,29 +147,56 @@ def recommend_similar(song_name, artist_name="", n=10):
             found_tracks = tracks_df[mask]
             
             if found_tracks.empty:
-                return f"❌ Không tìm thấy bài hát **{song_name}** (nghệ sĩ: {artist_name}) trong dữ liệu. Vui lòng kiểm tra lại tên bài hát và nghệ sĩ!"
+                available_tracks_sample = tracks_df[['name', 'artist']].head(5)
+                return f"""❌ Không tìm thấy bài hát **{song_name}** (nghệ sĩ: {artist_name}) trong dữ liệu.
+
+**Một số bài hát có sẵn:**
+{available_tracks_sample.to_markdown(index=False)}
+
+Vui lòng kiểm tra lại tên bài hát và nghệ sĩ!"""
+            
+            # Hiển thị thông tin bài hát gốc
+            original_info = found_tracks.iloc[0]
+            seed_info = f"""**🎵 Bài hát gốc:** {original_info['name']} - {original_info['artist']}
+**Popularity:** {original_info.get('popularity', 'N/A')} | **Năm phát hành:** {original_info.get('release_year', 'N/A')}
+
+---
+"""
+        else:
+            seed_info = ""
         
         # Thực hiện đề xuất
+        logger.info(f"Generating recommendations for '{song_name}' by {artist_name} using real metadata")
         rec1 = model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
         rec2 = weighted_model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
         
         # Hiển thị kết quả
-        result = "### Đề xuất theo MetadataRecommender:\n"
+        result = seed_info
+        
+        result += "### 📊 Đề xuất theo MetadataRecommender (Real Spotify Metadata):\n"
         if isinstance(rec1, str):
             result += rec1 + "\n"
+        elif not rec1.empty:
+            # Format cho đẹp hơn
+            display_cols = ['name', 'artist', 'content_score', 'popularity', 'release_year']
+            available_cols = [col for col in display_cols if col in rec1.columns]
+            result += rec1[available_cols].to_markdown(index=False) + "\n"
         else:
-            result += rec1.to_markdown(index=False) + "\n"
+            result += "Không có đề xuất.\n"
         
-        result += "\n---\n### Đề xuất theo WeightedContentRecommender:\n"
+        result += "\n---\n### ⚖️ Đề xuất theo WeightedContentRecommender (Weighted Real Features):\n"
         if isinstance(rec2, str):
             result += rec2
+        elif not rec2.empty:
+            available_cols = [col for col in display_cols if col in rec2.columns]
+            result += rec2[available_cols].to_markdown(index=False)
         else:
-            result += rec2.to_markdown(index=False)
+            result += "Không có đề xuất."
         
         return result
         
     except Exception as e:
-        logging.error(f"Lỗi khi đề xuất: {e}")
+        logger.error(f"Lỗi khi đề xuất: {e}\n{traceback.format_exc()}")
         return f"❌ Lỗi khi đề xuất: {str(e)}"
 
 def discover_by_genre(genre, n=10):
@@ -187,9 +216,13 @@ def discover_by_genre(genre, n=10):
         return f"❌ Lỗi khám phá thể loại: {e}"
 
 def create_ui():
-    with gr.Blocks(title="Music Recommender (Metadata)") as app:
-        with gr.Tab("Thiết lập dữ liệu"):
-            gr.Markdown("### Thiết lập dữ liệu ban đầu từ Spotify")
+    with gr.Blocks(title="Music Recommender (Real Spotify Metadata)", theme=gr.themes.Soft()) as app:
+        gr.Markdown("# 🎵 Music Recommender - Real Spotify Data Only")
+        gr.Markdown("*Hệ thống đề xuất âm nhạc dựa trên metadata thực từ Spotify API*")
+        
+        with gr.Tab("🔧 Thiết lập dữ liệu"):
+            gr.Markdown("### Thiết lập dữ liệu ban đầu từ Spotify API")
+            gr.Markdown("*Thu thập metadata thực từ Spotify, không sử dụng synthetic data*")
             tracks_per_query = gr.Slider(
                 MIN_TRACKS_PER_QUERY, 
                 MAX_TRACKS_PER_QUERY, 
@@ -197,32 +230,28 @@ def create_ui():
                 step=TRACKS_QUERY_STEP, 
                 label="Số bài hát mỗi truy vấn"
             )
-            setup_btn = gr.Button("Thiết lập dữ liệu")
+            setup_btn = gr.Button("🚀 Thiết lập dữ liệu", variant="primary")
             setup_output = gr.Markdown()
             setup_btn.click(fn=setup_initial_dataset, inputs=[tracks_per_query], outputs=setup_output)
 
-        with gr.Tab("Huấn luyện mô hình"):
+        with gr.Tab("🤖 Huấn luyện mô hình"):
             gr.Markdown("### Huấn luyện mô hình đề xuất")
-            train_btn = gr.Button("Huấn luyện mô hình")
+            gr.Markdown("*Huấn luyện với real metadata từ Spotify (popularity, duration, genre, release_year, v.v.)*")
+            train_btn = gr.Button("🏋️ Huấn luyện mô hình", variant="primary")
             train_output = gr.Markdown()
             train_btn.click(fn=train_model, outputs=train_output)
 
-        with gr.Tab("Đề xuất tương tự"):
+        with gr.Tab("🎯 Đề xuất tương tự"):
             gr.Markdown("### Đề xuất bài hát tương tự")
-            song_input = gr.Textbox(label="Tên bài hát")
-            artist_input = gr.Textbox(label="Tên nghệ sĩ (tùy chọn)")
-            n_similar = gr.Slider(5, 20, value=10, step=1, label="Số lượng đề xuất")
-            rec_btn = gr.Button("Đề xuất")
+            gr.Markdown("*Dựa trên real Spotify metadata: popularity, genre, artist, release year, duration...*")
+            with gr.Row():
+                song_input = gr.Textbox(label="🎵 Tên bài hát", placeholder="Ví dụ: Shape of You")
+                artist_input = gr.Textbox(label="👤 Tên nghệ sĩ (tùy chọn)", placeholder="Ví dụ: Ed Sheeran")
+            n_similar = gr.Slider(5, 20, value=10, step=1, label="📊 Số lượng đề xuất")
+            rec_btn = gr.Button("🔍 Đề xuất", variant="primary")
             rec_output = gr.Markdown()
             rec_btn.click(fn=recommend_similar, inputs=[song_input, artist_input, n_similar], outputs=rec_output)
-
-        with gr.Tab("Khám phá theo thể loại"):
-            gr.Markdown("### Khám phá âm nhạc theo thể loại")
-            genre_input = gr.Textbox(label="Thể loại (ví dụ: Pop, Rock, Hip-hop, Vietnamese, ...)")
-            genre_n = gr.Slider(5, 20, value=10, step=1, label="Số lượng bài hát")
-            genre_btn = gr.Button("Khám phá")
-            genre_output = gr.Markdown()
-            genre_btn.click(fn=discover_by_genre, inputs=[genre_input, genre_n], outputs=genre_output)
+    
     return app
 
 if __name__ == "__main__":

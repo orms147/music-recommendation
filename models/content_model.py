@@ -30,23 +30,24 @@ class ContentBasedRecommender(BaseRecommender):
             
         self.tracks_df = tracks_df.copy()
         
-        # Metadata-focused features
-        metadata_features = [
-            # Các đặc trưng cơ bản
+        # REAL METADATA FEATURES ONLY - loại bỏ synthetic audio
+        real_metadata_features = [
+            # Đặc trưng cơ bản từ Spotify API
             'popularity', 'explicit', 'release_year', 'decade', 
-            'duration_min', 'artist_frequency',
+            'duration_min', 'artist_frequency', 'artist_popularity',
+            'total_tracks', 'track_number', 'disc_number', 'markets_count',
             
-            # Đặc trưng chuyển đổi 
+            # Đặc trưng derived từ metadata
             'is_vietnamese', 'is_korean', 'is_japanese', 'is_spanish',
-            'has_collab', 'is_remix',
+            'has_collab', 'is_remix', 'name_length', 'artist_frequency_norm',
             
-            # Thể loại cũ
+            # Thể loại từ artist genres (real data)
             'genre_pop', 'genre_rock', 'genre_hip_hop', 'genre_rap', 
             'genre_electronic', 'genre_dance', 'genre_r&b', 'genre_indie', 
             'genre_classical', 'genre_jazz', 'genre_country', 'genre_folk', 
             'genre_metal', 'genre_blues',
             
-            # Thể loại mới từ queries đã cập nhật
+            # Thể loại regional
             'genre_v-pop', 'genre_vietnamese_hip_hop', 'genre_vietnam_indie',
             'genre_vinahouse', 'genre_vietnamese_lo-fi', 'genre_k-pop', 
             'genre_j-pop', 'genre_c-pop', 'genre_mandopop', 'genre_lo-fi',
@@ -54,28 +55,17 @@ class ContentBasedRecommender(BaseRecommender):
             'genre_chamber_music', 'genre_opera', 'genre_requiem'
         ]
         
+        # LOẠI BỎ hoàn toàn synthetic audio features
+        # Không thêm: 'energy', 'danceability', 'valence', 'acousticness', etc.
+        
         # Lọc các đặc trưng có sẵn
-        available_features = [f for f in metadata_features if f in self.tracks_df.columns]
-        
-        # Thêm artist_popularity (bất kể tên gì sau khi merge)
-        for col in ['artist_popularity', 'artist_popularity_x', 'artist_popularity_y']:
-            if col in self.tracks_df.columns:
-                available_features.append(col)
-                break
-        
-        # Thêm các đặc trưng audio tổng hợp nếu có
-        synthetic_audio = [
-            'energy', 'danceability', 'valence', 'acousticness', 
-            'instrumentalness', 'liveness', 'speechiness'
-        ]
-        
-        available_features.extend([f for f in synthetic_audio if f in self.tracks_df.columns])
+        available_features = [f for f in real_metadata_features if f in self.tracks_df.columns]
         
         if not available_features:
-            logger.error("No valid features found for content-based recommendation")
+            logger.error("No valid real metadata features found for content-based recommendation")
             return False
             
-        logger.info(f"Using features: {available_features}")
+        logger.info(f"Using {len(available_features)} real metadata features: {available_features[:10]}...")
         
         # Tạo feature matrix
         feature_matrix = self.tracks_df[available_features].fillna(0).values
@@ -87,7 +77,7 @@ class ContentBasedRecommender(BaseRecommender):
         self.track_indices = {track_id: i for i, track_id in enumerate(self.tracks_df['id'])}
         
         self.train_time = datetime.now() - start_time
-        logger.info(f"Content-based model trained in {self.train_time.total_seconds():.2f} seconds")
+        logger.info(f"Content-based model trained with real metadata in {self.train_time.total_seconds():.2f} seconds")
         
         self.is_trained = True
         return True
