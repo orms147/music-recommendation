@@ -11,8 +11,10 @@ Hệ thống đề xuất âm nhạc thông minh sử dụng dữ liệu từ Sp
 - Đề xuất bài hát dựa trên các đặc trưng metadata
 - Giao diện người dùng trực quan với Gradio
 - Gợi ý âm nhạc tương tự bài hát đang nghe
-- Tạo danh sách phát từ bài hát gợi ý
+- **So sánh hai mô hình đề xuất:** MetadataRecommender (truyền thống) và WeightedContentRecommender (weighted scoring + genre similarity)
+- Tạo danh sách phát (playlist) từ bài hát gợi ý
 - Khám phá bài hát theo thể loại
+- **Thông báo rõ ràng khi không tìm thấy bài hát trong dữ liệu**
 
 ## Thiết lập dự án
 
@@ -53,7 +55,7 @@ Hệ thống sử dụng Spotify API để thu thập dữ liệu bài hát vớ
    ```
    - Sử dụng giao diện web để thiết lập số lượng bài hát mỗi truy vấn
 
-2. **Thu thập dữ liệu lớn**: Tự động thu thập hàng trăm nghìn bài hát thông qua các truy vấn đa dạng.
+2. **Thu thập dữ liệu lớn**: Tự động thu thập hàng chục nghìn bài hát thông qua các truy vấn đa dạng.
    - Hỗ trợ lên tới 400,000 bài hát (có thể lớn hơn)
    - Tự động xử lý theo lô để tránh vượt quá giới hạn API
    - Lưu dữ liệu theo định kỳ để tránh mất dữ liệu
@@ -73,51 +75,56 @@ Sau khi thu thập, dữ liệu được xử lý thông qua `DataProcessor` đ�
 
 ### Mô hình đề xuất
 
-Hệ thống sử dụng phương pháp đề xuất dựa trên nội dung (Content-based Recommendation):
+Hệ thống sử dụng hai phương pháp đề xuất dựa trên nội dung:
 
-1. **ContentBasedRecommender**: Mô hình cốt lõi tính toán độ tương tự giữa các bài hát dựa trên metadata
+1. **MetadataRecommender**: Mô hình truyền thống tính toán độ tương tự giữa các bài hát dựa trên metadata
    - Sử dụng độ tương tự cosine giữa các vector đặc trưng
    - Hỗ trợ tìm kiếm bài hát theo tên và nghệ sĩ
    - Xử lý thông minh với các trường hợp không tìm thấy bài hát chính xác
-
-2. **MetadataRecommender**: Lớp cao cấp hơn bao bọc ContentBasedRecommender và thêm các tính năng:
    - Tạo danh sách phát từ một bài hát gốc
    - Phân tích sự chuyển tiếp giữa các bài hát trong danh sách phát
    - Khám phá bài hát theo thể loại
-   - Xử lý lỗi và fallback khi không tìm thấy kết quả
+
+2. **WeightedContentRecommender**: Mô hình mới kết hợp weighted scoring và genre similarity
+   - Tính điểm tổng hợp dựa trên genre similarity, độ phổ biến, độ nổi tiếng nghệ sĩ, ngôn ngữ, năm phát hành
+   - Có thể điều chỉnh trọng số các yếu tố
+   - Đề xuất bài hát phù hợp hơn với sở thích đa chiều
+
+**Cả hai mô hình đều có thông báo rõ ràng khi không tìm thấy bài hát trong dữ liệu.**
 
 ## Cấu trúc dự án
 
 ```
 music-recommendation/
 ├── config/
-│   └── config.py          # Cấu hình tập trung cho toàn bộ hệ thống
+│   └── config.py                # Cấu hình tập trung cho toàn bộ hệ thống
 ├── data/
-│   ├── raw/               # Dữ liệu thô từ Spotify API
-│   └── processed/         # Dữ liệu đã qua xử lý
+│   ├── raw/                     # Dữ liệu thô từ Spotify API
+│   └── processed/               # Dữ liệu đã qua xử lý
 ├── models/
-│   ├── base_model.py      # Lớp cơ sở cho các mô hình đề xuất
-│   ├── content_model.py   # Mô hình đề xuất dựa trên nội dung
-│   └── hybrid_model.py    # Mô hình kết hợp (MetadataRecommender)
+│   ├── base_model.py            # Lớp cơ sở cho các mô hình đề xuất
+│   ├── content_model.py         # Mô hình đề xuất dựa trên nội dung
+│   ├── hybrid_model.py          # Mô hình kết hợp (MetadataRecommender)
+│   └── weighted_content_model.py# Mô hình weighted scoring + genre similarity
 ├── utils/
-│   ├── data_fetcher.py    # Thu thập dữ liệu từ Spotify API
-│   └── data_processor.py  # Xử lý và làm giàu dữ liệu
-├── main.py                # Điểm vào chính và giao diện người dùng
-├── requirements.txt       # Các thư viện cần thiết
-└── .env                   # Biến môi trường (không được đưa lên Git)
+│   ├── data_fetcher.py          # Thu thập dữ liệu từ Spotify API
+│   └── data_processor.py        # Xử lý và làm giàu dữ liệu
+├── main.py                      # Điểm vào chính và giao diện người dùng
+├── requirements.txt             # Các thư viện cần thiết
+└── .env                         # Biến môi trường (không được đưa lên Git)
 ```
 
 ## Tùy chỉnh hệ thống
 
 Tất cả các thông số có thể tùy chỉnh đều nằm trong config.py:
 
-- `DEFAULT_TRACKS_PER_QUERY`: Số lượng bài hát mặc định cho mỗi truy vấn (mặc định: 100)
-- `MAX_TRACKS_PER_QUERY`: Giới hạn tối đa số bài hát mỗi truy vấn (mặc định: 500)
+- `DEFAULT_TRACKS_PER_QUERY`: Số lượng bài hát mặc định cho mỗi truy vấn (mặc định: 200)
+- `MAX_TRACKS_PER_QUERY`: Giới hạn tối đa số bài hát mỗi truy vấn (mặc định: 1000)
 - `MIN_TRACKS_PER_QUERY`: Giới hạn tối thiểu số bài hát mỗi truy vấn (mặc định: 5)
 - `TRACKS_QUERY_STEP`: Bước nhảy cho thanh trượt (mặc định: 5)
-- `LARGE_DATASET_DEFAULT_SIZE`: Kích thước mặc định cho tập dữ liệu lớn (mặc định: 100,000)
-- `LARGE_DATASET_BATCH_SIZE`: Số lượng truy vấn mỗi lô khi lấy dữ liệu lớn (mặc định: 500)
-- `LARGE_DATASET_SAVE_INTERVAL`: Lưu sau mỗi bao nhiêu bài hát (mặc định: 5,000)
+- `LARGE_DATASET_DEFAULT_SIZE`: Kích thước mặc định cho tập dữ liệu lớn (mặc định: 20,000)
+- `LARGE_DATASET_BATCH_SIZE`: Số lượng truy vấn mỗi lô khi lấy dữ liệu lớn (mặc định: 200)
+- `LARGE_DATASET_SAVE_INTERVAL`: Lưu sau mỗi bao nhiêu bài hát (mặc định: 2,000)
 - `CONTENT_FEATURES`: Danh sách các đặc trưng metadata được sử dụng
 
 ## Sử dụng thông qua giao diện
@@ -129,13 +136,15 @@ Tất cả các thông số có thể tùy chỉnh đều nằm trong config.py:
 
 2. **Thiết lập dữ liệu**: Sử dụng tab "Thiết lập dữ liệu" để thu thập dữ liệu ban đầu
 
-3. **Huấn luyện mô hình**: Nhấn nút "Huấn luyện mô hình" để xử lý dữ liệu và xây dựng mô hình
+3. **Huấn luyện mô hình**: Nhấn nút "Huấn luyện mô hình" để xử lý dữ liệu và xây dựng cả hai mô hình
 
-4. **Gợi ý bài hát**: Nhập tên bài hát và nghệ sĩ để nhận gợi ý bài hát tương tự
+4. **Gợi ý bài hát**: Nhập tên bài hát và nghệ sĩ để nhận gợi ý từ cả hai mô hình (so sánh trực tiếp)
 
-5. **Tạo danh sách phát**: Sử dụng tab "Tạo danh sách phát" để tạo queue bài hát từ một bài hạt gốc
+5. **Tạo danh sách phát**: Sử dụng tab "Tạo danh sách phát" để tạo queue bài hát từ một bài hát gốc
 
 6. **Khám phá theo thể loại**: Sử dụng tab "Khám phá theo thể loại" để tìm bài hát từ một thể loại cụ thể
+
+**Lưu ý:** Nếu bài hát không có trong dữ liệu, giao diện sẽ thông báo rõ ràng cho người dùng.
 
 ## Lưu ý về giới hạn API
 
@@ -148,7 +157,7 @@ Khi thu thập bộ dữ liệu lớn, hệ thống đã cài đặt các cơ ch
 
 ## Đóng góp
 
-Dự án hệ thống đề xuất âm nhạc này được tôi phát triển dựa trên kiến thức và tham khảo từ nhiều nguồn khác nhau:
+Dự án hệ thống đề xuất âm nhạc này được phát triển dựa trên kiến thức và tham khảo từ nhiều nguồn khác nhau.
 
 ## Tài liệu tham khảo chính
 
