@@ -21,7 +21,7 @@ class ContentBasedRecommender(BaseRecommender):
         self.is_trained = False
 
     def train(self, tracks_df=None):
-        """Train the model using track features"""
+        """Train the model using ONLY available real metadata features"""
         start_time = datetime.now()
         
         if tracks_df is None:
@@ -30,54 +30,62 @@ class ContentBasedRecommender(BaseRecommender):
             
         self.tracks_df = tracks_df.copy()
         
-        # REAL METADATA FEATURES ONLY - loại bỏ synthetic audio
-        real_metadata_features = [
-            # Đặc trưng cơ bản từ Spotify API
-            'popularity', 'explicit', 'release_year', 'decade', 
-            'duration_min', 'artist_frequency', 'artist_popularity',
-            'total_tracks', 'track_number', 'disc_number', 'markets_count',
-            
-            # Đặc trưng derived từ metadata
-            'is_vietnamese', 'is_korean', 'is_japanese', 'is_spanish',
-            'has_collab', 'is_remix', 'name_length', 'artist_frequency_norm',
-            
-            # Thể loại từ artist genres (real data)
-            'genre_pop', 'genre_rock', 'genre_hip_hop', 'genre_rap', 
-            'genre_electronic', 'genre_dance', 'genre_r&b', 'genre_indie', 
-            'genre_classical', 'genre_jazz', 'genre_country', 'genre_folk', 
-            'genre_metal', 'genre_blues',
-            
-            # Thể loại regional
-            'genre_v-pop', 'genre_vietnamese_hip_hop', 'genre_vietnam_indie',
-            'genre_vinahouse', 'genre_vietnamese_lo-fi', 'genre_k-pop', 
-            'genre_j-pop', 'genre_c-pop', 'genre_mandopop', 'genre_lo-fi',
-            'genre_lo-fi_beats', 'genre_edm', 'genre_bossa_nova',
-            'genre_chamber_music', 'genre_opera', 'genre_requiem'
+        # KIỂM TRA FEATURES THỰC TẾ CÓ SẴN
+        base_features = [
+            'popularity', 'explicit', 'release_year', 'duration_ms',
+            'total_tracks', 'track_number', 'disc_number', 'markets_count'
         ]
         
-        # LOẠI BỎ hoàn toàn synthetic audio features
-        # Không thêm: 'energy', 'danceability', 'valence', 'acousticness', etc.
+        # Derived features (được tạo trong data processing)
+        derived_features = [
+            'duration_min', 'artist_frequency', 'name_length',
+            'has_collab', 'is_remix', 'is_vietnamese', 'is_korean', 
+            'is_japanese', 'is_spanish'
+        ]
         
-        # Lọc các đặc trưng có sẵn
-        available_features = [f for f in real_metadata_features if f in self.tracks_df.columns]
+        # Genre features (từ artist genres)
+        genre_features = [col for col in self.tracks_df.columns if col.startswith('genre_')]
         
-        if not available_features:
-            logger.error("No valid real metadata features found for content-based recommendation")
+        # Tạo danh sách features có sẵn
+        all_candidate_features = base_features + derived_features + genre_features
+        available_features = [f for f in all_candidate_features if f in self.tracks_df.columns]
+        
+        logger.info(f"Available features in dataset: {self.tracks_df.columns.tolist()[:20]}...")
+        logger.info(f"Using {len(available_features)} features: {available_features}")
+        
+        if len(available_features) < 3:
+            logger.error(f"Insufficient features for training. Only {len(available_features)} available")
             return False
-            
-        logger.info(f"Using {len(available_features)} real metadata features: {available_features[:10]}...")
+        
+        # Fill missing values trước khi tạo feature matrix
+        feature_df = self.tracks_df[available_features].copy()
+        
+        # Fill missing values với giá trị hợp lý
+        for col in feature_df.columns:
+            if feature_df[col].dtype in ['int64', 'float64']:
+                if col in ['popularity', 'artist_popularity']:
+                    feature_df[col] = feature_df[col].fillna(0)
+                elif col.startswith('genre_') or col.startswith('is_'):
+                    feature_df[col] = feature_df[col].fillna(0)
+                else:
+                    feature_df[col] = feature_df[col].fillna(feature_df[col].median())
+            else:
+                feature_df[col] = feature_df[col].fillna(0)
         
         # Tạo feature matrix
-        feature_matrix = self.tracks_df[available_features].fillna(0).values
+        feature_matrix = feature_df.values
         
         # Tính toán ma trận tương đồng
         self.similarity_matrix = cosine_similarity(feature_matrix)
         
         # Tạo map từ track ID sang index
-        self.track_indices = {track_id: i for i, track_id in enumerate(self.tracks_df['id'])}
+        if 'id' in self.tracks_df.columns:
+            self.track_indices = {track_id: i for i, track_id in enumerate(self.tracks_df['id'])}
+        else:
+            self.track_indices = {i: i for i in range(len(self.tracks_df))}
         
         self.train_time = datetime.now() - start_time
-        logger.info(f"Content-based model trained with real metadata in {self.train_time.total_seconds():.2f} seconds")
+        logger.info(f"Content-based model trained successfully with {len(available_features)} features in {self.train_time.total_seconds():.2f} seconds")
         
         self.is_trained = True
         return True

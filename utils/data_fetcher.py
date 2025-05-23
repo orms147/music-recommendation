@@ -19,7 +19,7 @@ class SpotifyDataFetcher:
         """Initialize Spotify API client with simplified authentication"""
         self.sp = None
 
-        # Use provided credentials or environment variables
+        # Use provided  or environment variables
         client_id = client_id or SPOTIFY_CLIENT_ID
         client_secret = client_secret or SPOTIFY_CLIENT_SECRET
 
@@ -212,6 +212,66 @@ class SpotifyDataFetcher:
             logger.info(f"Saved {len(genres_df)} artist genres to {save_path}")
         
         return genres_df
+
+    def fetch_enhanced_artist_info(self, artist_ids, save_path=None, batch_size=20):
+        """Fetch comprehensive artist information including musical style indicators"""
+        all_artist_info = []
+        
+        for i in range(0, len(artist_ids), batch_size):
+            batch = artist_ids[i:i+batch_size]
+            try:
+                artists_data = self.sp.artists(batch)['artists']
+                
+                for artist in artists_data:
+                    if artist:
+                        # Basic info
+                        artist_info = {
+                            'artist_id': artist['id'],
+                            'artist_name': artist['name'],
+                            'genres': '|'.join(artist['genres']) if artist['genres'] else '',
+                            'popularity': artist.get('popularity', 0),
+                            'followers': artist.get('followers', {}).get('total', 0),
+                        }
+                        
+                        # Analyze primary musical style from genres
+                        genres = artist.get('genres', [])
+                        artist_info.update(self._analyze_artist_musical_style(genres))
+                        
+                        all_artist_info.append(artist_info)
+                
+                time.sleep(0.5)
+            except Exception as e:
+                logger.warning(f"Error fetching enhanced artist data: {e}")
+        
+        return pd.DataFrame(all_artist_info)
+
+    def _analyze_artist_musical_style(self, genres):
+        """Analyze artist's primary musical style from genres"""
+        style_indicators = {
+            'is_pop_artist': any('pop' in g.lower() for g in genres),
+            'is_rock_artist': any(rock in g.lower() for rock in ['rock', 'metal', 'punk'] for g in genres),
+            'is_hiphop_artist': any(hip in g.lower() for hip in ['hip hop', 'rap', 'trap'] for g in genres),
+            'is_electronic_artist': any(elec in g.lower() for elec in ['electronic', 'edm', 'house', 'techno'] for g in genres),
+            'is_r&b_artist': any(rb in g.lower() for rb in ['r&b', 'soul', 'funk'] for g in genres),
+            'is_country_artist': any('country' in g.lower() for g in genres),
+            'is_jazz_artist': any(jazz in g.lower() for jazz in ['jazz', 'blues'] for g in genres),
+            'is_classical_artist': any(classical in g.lower() for classical in ['classical', 'opera'] for g in genres),
+            
+            # Regional styles
+            'is_asian_artist': any(asian in g.lower() for asian in ['k-pop', 'j-pop', 'c-pop', 'vietnamese'] for g in genres),
+            'is_latin_artist': any(latin in g.lower() for latin in ['latin', 'reggaeton', 'spanish'] for g in genres),
+            
+            # Style characteristics
+            'is_mainstream_artist': len([g for g in genres if 'pop' in g.lower()]) > 0,
+            'is_alternative_artist': any(alt in g.lower() for alt in ['alternative', 'indie', 'underground'] for g in genres),
+            'is_experimental_artist': any(exp in g.lower() for exp in ['experimental', 'avant-garde', 'noise'] for g in genres),
+            
+            # Primary genre
+            'primary_genre': genres[0] if genres else 'unknown',
+            'genre_diversity': len(set(genres)),  # Số lượng thể loại khác nhau
+        }
+        
+        return style_indicators
 
     def enrich_track_data(self, tracks_df, save_path=None):
         """Tự động tạo đặc trưng bổ sung từ dữ liệu bài hát hiện có"""

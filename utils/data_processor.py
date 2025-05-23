@@ -3,7 +3,7 @@ import logging
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, RobustScaler
 from config.config import RAW_DATA_DIR, PROCESSED_DATA_DIR, CONTENT_FEATURES
 
 logger = logging.getLogger(__name__)
@@ -329,105 +329,161 @@ class DataProcessor:
         return True
     
     def create_additional_features(self):
-        """Create additional features from metadata"""
+        """Create meaningful additional features from metadata"""
         if self.tracks_df is None or self.tracks_df.empty:
             logger.error("No tracks data to create additional features")
             return False
         
-        # 1. Calculate duration in minutes
-        if 'duration_ms' in self.tracks_df.columns and 'duration_min' not in self.tracks_df.columns:
+        # 1. Duration features - cải thiện
+        if 'duration_ms' in self.tracks_df.columns:
             self.tracks_df['duration_min'] = self.tracks_df['duration_ms'] / 60000
             
-            # Create duration category
+            # Tạo duration categories có ý nghĩa
             self.tracks_df['duration_category'] = pd.cut(
                 self.tracks_df['duration_min'],
-                bins=[0, 2, 3, 4, 6, 100],
-                labels=['very_short', 'short', 'medium', 'long', 'very_long']
+                bins=[0, 2.5, 3.5, 4.5, 6, 100],
+                labels=['short', 'normal', 'extended', 'long', 'very_long']
             )
+            
+            # Duration score (bài hát 3-4 phút được ưa thích nhất)
+            optimal_duration = 3.5
+            self.tracks_df['duration_score'] = np.exp(-0.5 * ((self.tracks_df['duration_min'] - optimal_duration) / 1.5) ** 2)
         
-        # 2. Create popularity categories
-        if 'popularity' in self.tracks_df.columns and 'popularity_category' not in self.tracks_df.columns:
-            self.tracks_df['popularity_category'] = pd.cut(
+        # 2. Popularity features - cải thiện
+        if 'popularity' in self.tracks_df.columns:
+            # Tạo popularity tiers có ý nghĩa
+            self.tracks_df['popularity_tier'] = pd.cut(
                 self.tracks_df['popularity'],
-                bins=[0, 20, 40, 60, 80, 100],
-                labels=['very_low', 'low', 'medium', 'high', 'very_high']
+                bins=[0, 30, 50, 70, 85, 100],
+                labels=['niche', 'emerging', 'popular', 'hit', 'viral']
+            )
+            
+            # Popularity momentum (cho tracks mới)
+            current_year = datetime.now().year
+            if 'release_year' in self.tracks_df.columns:
+                years_since_release = current_year - self.tracks_df['release_year'].fillna(current_year)
+                # Tracks mới với popularity cao = momentum tốt
+                self.tracks_df['popularity_momentum'] = self.tracks_df['popularity'] / (1 + 0.1 * years_since_release)
+        
+        # 3. Track name features - cải thiện
+        if 'name' in self.tracks_df.columns:
+            # Collab detection với regex tốt hơn
+            collab_pattern = r'(feat\.?|ft\.?|featuring|with|vs\.?|x\s+|\&|\+)'
+            self.tracks_df['has_collab'] = self.tracks_df['name'].str.contains(
+                collab_pattern, case=False, regex=True, na=False
+            ).astype(int)
+            
+            # Remix/version detection
+            remix_pattern = r'(remix|edit|version|mix|remaster|acoustic|live|demo|instrumental)'
+            self.tracks_df['is_remix'] = self.tracks_df['name'].str.contains(
+                remix_pattern, case=False, regex=True, na=False
+            ).astype(int)
+            
+            # Track name complexity
+            self.tracks_df['name_length'] = self.tracks_df['name'].str.len()
+            self.tracks_df['name_words'] = self.tracks_df['name'].str.split().str.len()
+            
+            # Special characters (có thể là non-English)
+            self.tracks_df['has_special_chars'] = self.tracks_df['name'].str.contains(
+                r'[^\w\s\-\(\)\[\]\.,:;!?\'"&]', regex=True, na=False
+            ).astype(int)
+        
+        # 4. Artist features - cải thiện
+        if 'artist' in self.tracks_df.columns:
+            # Artist frequency với log scaling
+            artist_counts = self.tracks_df['artist'].value_counts()
+            self.tracks_df['artist_frequency'] = self.tracks_df['artist'].map(artist_counts)
+            self.tracks_df['artist_frequency_log'] = np.log1p(self.tracks_df['artist_frequency'])
+            
+            # Normalize artist frequency
+            max_freq_log = self.tracks_df['artist_frequency_log'].max()
+            if max_freq_log > 0:
+                self.tracks_df['artist_frequency_norm'] = self.tracks_df['artist_frequency_log'] / max_freq_log
+            else:
+                self.tracks_df['artist_frequency_norm'] = 0
+            
+            # Multi-artist tracks
+            self.tracks_df['is_multi_artist'] = self.tracks_df['artist'].str.contains(
+                r'[,&\+]|feat|ft\.?', case=False, regex=True, na=False
+            ).astype(int)
+        
+        # 5. Album features - nếu có
+        if 'album_type' in self.tracks_df.columns:
+            # Encode album types
+            album_type_mapping = {'album': 1.0, 'single': 0.8, 'compilation': 0.6}
+            self.tracks_df['album_type_score'] = self.tracks_df['album_type'].map(
+                album_type_mapping
+            ).fillna(0.5)
+        
+        if 'total_tracks' in self.tracks_df.columns:
+            # Album size categories
+            self.tracks_df['album_size_category'] = pd.cut(
+                self.tracks_df['total_tracks'].fillna(1),
+                bins=[0, 1, 5, 12, 20, 100],
+                labels=['single', 'ep', 'album', 'long_album', 'compilation']
             )
         
-        # 3. Extract features from track name
-        if 'name' in self.tracks_df.columns:
-            # Has feature/collab indicated by 'feat.', 'ft.', 'with'
-            has_collab_pattern = r'(feat\.?|ft\.?|with)\s'
-            self.tracks_df['has_collab'] = self.tracks_df['name'].str.contains(
-                has_collab_pattern, case=False, regex=True, na=False
-            ).astype(int)
-            
-            # Is a remix/edit
-            self.tracks_df['is_remix'] = self.tracks_df['name'].str.contains(
-                r'(remix|edit|version|mix|dub|remaster)', case=False, na=False
-            ).astype(int)
-            
-            # Length of track name (can indicate complexity)
-            self.tracks_df['name_length'] = self.tracks_df['name'].str.len()
-        
-        # 4. Create artist frequency features
-        if 'artist' in self.tracks_df.columns:
-            # Count frequency of each artist
-            artist_counts = self.tracks_df['artist'].value_counts()
-            
-            # Map counts back to tracks
-            self.tracks_df['artist_frequency'] = self.tracks_df['artist'].map(artist_counts)
-            
-            # Normalize to 0-1
-            max_freq = self.tracks_df['artist_frequency'].max()
-            if max_freq > 0:
-                self.tracks_df['artist_frequency_norm'] = self.tracks_df['artist_frequency'] / max_freq
-        
-        logger.info("Created additional metadata-based features")
-        
+        logger.info("Created improved additional features from metadata")
         return True
-    
+
     def normalize_features(self):
-        """Normalize numerical features - focus on real Spotify metadata only"""
+        """Improved feature normalization focusing on real metadata"""
         if self.tracks_df is None or self.tracks_df.empty:
             logger.error("No tracks data to normalize")
             return False
         
-        # Chỉ sử dụng real metadata features từ Spotify
-        real_numeric_features = [
-            'popularity', 'duration_ms', 'duration_min',
-            'artist_popularity', 'artist_frequency', 'release_year',
-            'name_length', 'artist_followers', 'total_tracks', 
-            'track_number', 'disc_number'
-        ]
+        # Định nghĩa features cần normalize
+        numeric_features = {
+            # Core Spotify features
+            'popularity': {'method': 'minmax', 'fill': 0},
+            'duration_ms': {'method': 'robust', 'fill': 'median'},  # Robust để handle outliers
+            'artist_popularity': {'method': 'minmax', 'fill': 50},
+            'release_year': {'method': 'minmax', 'fill': 2000},
+            
+            # Derived features
+            'duration_min': {'method': 'robust', 'fill': 'median'},
+            'name_length': {'method': 'robust', 'fill': 'median'},
+            'name_words': {'method': 'robust', 'fill': 'median'},
+            'artist_frequency': {'method': 'log_minmax', 'fill': 1},
+            'total_tracks': {'method': 'log_minmax', 'fill': 1},
+            'track_number': {'method': 'minmax', 'fill': 1},
+            'disc_number': {'method': 'minmax', 'fill': 1},
+            'markets_count': {'method': 'robust', 'fill': 0},
+            
+            # Computed scores
+            'duration_score': {'method': 'minmax', 'fill': 0.5},
+            'popularity_momentum': {'method': 'robust', 'fill': 'median'},
+            'album_type_score': {'method': 'minmax', 'fill': 0.5}
+        }
         
-        # LOẠI BỎ hoàn toàn synthetic audio features
-        # Không thêm các features như danceability, energy, valence, etc.
-        
-        # Lọc các features thực sự có trong DataFrame
-        features_to_normalize = [f for f in real_numeric_features if f in self.tracks_df.columns]
-        
-        if not features_to_normalize:
-            logger.warning("No real numeric features to normalize")
-            return False
-        
-        # Sử dụng MinMaxScaler để chuẩn hóa về khoảng [0,1]
-        scaler = MinMaxScaler()
-        
-        # Tiền xử lý - thay thế giá trị NaN bằng trung bình hoặc giá trị mặc định
-        for feature in features_to_normalize:
-            if self.tracks_df[feature].isna().any():
-                if feature in ['popularity', 'artist_popularity']:
-                    self.tracks_df[feature] = self.tracks_df[feature].fillna(0)
-                elif feature in ['total_tracks', 'track_number', 'disc_number']:
-                    self.tracks_df[feature] = self.tracks_df[feature].fillna(1)
+        # Apply normalization
+        for feature, config in numeric_features.items():
+            if feature in self.tracks_df.columns:
+                # Handle missing values
+                if config['fill'] == 'median':
+                    fill_value = self.tracks_df[feature].median()
                 else:
-                    self.tracks_df[feature] = self.tracks_df[feature].fillna(self.tracks_df[feature].median())
+                    fill_value = config['fill']
+                
+                self.tracks_df[feature] = self.tracks_df[feature].fillna(fill_value)
+                
+                # Apply normalization
+                values = self.tracks_df[feature].values.reshape(-1, 1)
+                
+                if config['method'] == 'minmax':
+                    scaler = MinMaxScaler()
+                    self.tracks_df[feature] = scaler.fit_transform(values).flatten()
+                elif config['method'] == 'robust':
+                    scaler = RobustScaler()
+                    self.tracks_df[feature] = scaler.fit_transform(values).flatten()
+                    # Clip to [0, 1] range after robust scaling
+                    self.tracks_df[feature] = np.clip(self.tracks_df[feature], 0, 1)
+                elif config['method'] == 'log_minmax':
+                    log_values = np.log1p(values)
+                    scaler = MinMaxScaler()
+                    self.tracks_df[feature] = scaler.fit_transform(log_values).flatten()
         
-        # Chuẩn hóa
-        self.tracks_df[features_to_normalize] = scaler.fit_transform(self.tracks_df[features_to_normalize])
-        
-        logger.info(f"Normalized {len(features_to_normalize)} real metadata features: {features_to_normalize}")
-        
+        logger.info(f"Normalized {len([f for f in numeric_features.keys() if f in self.tracks_df.columns])} features with improved methods")
         return True
     
     def create_user_item_matrix(self, output_path=None):
