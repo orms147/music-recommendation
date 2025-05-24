@@ -175,6 +175,67 @@ class EnhancedContentRecommender(BaseRecommender):
         
         return enhanced_scores
 
+    def recommend(self, track_name=None, artist=None, n_recommendations=10):
+        """Enhanced recommendation with smart search and multi-factor scoring"""
+        if not self.is_trained:
+            logger.error("Model not trained. Please train the model first.")
+            return pd.DataFrame()
+        
+        n_recommendations = min(n_recommendations, len(self.tracks_df) - 1)
+        
+        # 1. Enhanced search with confidence scoring
+        track_idx, search_confidence = self._find_track_with_fuzzy(track_name, artist)
+        
+        if track_idx is None:
+            logger.warning(f"Track '{track_name}' not found with fuzzy search, using smart fallback")
+            recommendations = self._smart_fallback(track_name, artist, n_recommendations)
+            
+            # Add quality metrics for fallback
+            self._log_recommendation_quality(recommendations, input_method='smart_fallback')
+            
+            # Return clean result
+            result_cols = ['name', 'artist', 'enhanced_score', 'popularity', 'release_year']
+            available_cols = [col for col in result_cols if col in recommendations.columns]
+            return recommendations[available_cols].round(3)
+        
+        # 2. Get seed track info
+        seed_track = self.tracks_df.iloc[track_idx]
+        logger.info(f"Found track with {search_confidence:.3f} confidence: '{seed_track['name']}' by {seed_track['artist']}")
+        
+        # 3. Get base recommendations from content model
+        try:
+            base_recs = self.content_recommender.recommend(
+                track_name=track_name, 
+                artist=artist, 
+                n_recommendations=min(n_recommendations * 2, len(self.tracks_df) - 1)
+            )
+        except Exception as e:
+            logger.error(f"Error getting base recommendations: {e}")
+            return self._smart_fallback(track_name, artist, n_recommendations)
+        
+        if base_recs.empty:
+            return self._smart_fallback(track_name, artist, n_recommendations)
+        
+        # 4. Enhanced scoring
+        enhanced_scores = self._calculate_enhanced_similarity(track_idx, base_recs)
+        base_recs['enhanced_score'] = enhanced_scores
+        
+        # 5. Re-rank by enhanced score
+        final_recommendations = base_recs.sort_values('enhanced_score', ascending=False).head(n_recommendations)
+        
+        # 6. Add metadata and quality metrics
+        final_recommendations['search_confidence'] = search_confidence
+        final_recommendations['recommendation_method'] = 'enhanced_content'
+        
+        # Log quality metrics
+        self._log_recommendation_quality(final_recommendations, seed_track, search_confidence)
+        
+        # Return clean result
+        result_cols = ['name', 'artist', 'enhanced_score', 'popularity', 'release_year']
+        available_cols = [col for col in result_cols if col in final_recommendations.columns]
+        
+        return final_recommendations[available_cols].round(3)
+
     def _smart_fallback(self, track_name, artist, n_recommendations):
         """Intelligent fallback when exact track not found"""
         fallback_results = []
@@ -305,67 +366,6 @@ class EnhancedContentRecommender(BaseRecommender):
         logger.info("=====================================")
         
         return metrics
-
-    def recommend(self, track_name=None, artist=None, n_recommendations=10):
-        """Enhanced recommendation with smart search and multi-factor scoring"""
-        if not self.is_trained:
-            logger.error("Model not trained. Please train the model first.")
-            return pd.DataFrame()
-        
-        n_recommendations = min(n_recommendations, len(self.tracks_df) - 1)
-        
-        # 1. Enhanced search with confidence scoring
-        track_idx, search_confidence = self._find_track_with_fuzzy(track_name, artist)
-        
-        if track_idx is None:
-            logger.warning(f"Track '{track_name}' not found with fuzzy search, using smart fallback")
-            recommendations = self._smart_fallback(track_name, artist, n_recommendations)
-            
-            # Add quality metrics for fallback
-            self._log_recommendation_quality(recommendations, input_method='smart_fallback')
-            
-            # Return clean result
-            result_cols = ['name', 'artist', 'enhanced_score', 'popularity', 'release_year']
-            available_cols = [col for col in result_cols if col in recommendations.columns]
-            return recommendations[available_cols].round(3)
-        
-        # 2. Get seed track info
-        seed_track = self.tracks_df.iloc[track_idx]
-        logger.info(f"Found track with {search_confidence:.3f} confidence: '{seed_track['name']}' by {seed_track['artist']}")
-        
-        # 3. Get base recommendations from content model
-        try:
-            base_recs = self.content_recommender.recommend(
-                track_name=track_name, 
-                artist=artist, 
-                n_recommendations=min(n_recommendations * 2, len(self.tracks_df) - 1)  # Get more for filtering
-            )
-        except Exception as e:
-            logger.error(f"Error getting base recommendations: {e}")
-            return self._smart_fallback(track_name, artist, n_recommendations)
-        
-        if base_recs.empty:
-            return self._smart_fallback(track_name, artist, n_recommendations)
-        
-        # 4. Enhanced scoring
-        enhanced_scores = self._calculate_enhanced_similarity(track_idx, base_recs)
-        base_recs['enhanced_score'] = enhanced_scores
-        
-        # 5. Re-rank by enhanced score
-        final_recommendations = base_recs.sort_values('enhanced_score', ascending=False).head(n_recommendations)
-        
-        # 6. Add metadata and quality metrics
-        final_recommendations['search_confidence'] = search_confidence
-        final_recommendations['recommendation_method'] = 'enhanced_content'
-        
-        # Log quality metrics
-        self._log_recommendation_quality(final_recommendations, seed_track, search_confidence)
-        
-        # Return clean result
-        result_cols = ['name', 'artist', 'enhanced_score', 'popularity', 'release_year']
-        available_cols = [col for col in result_cols if col in final_recommendations.columns]
-        
-        return final_recommendations[available_cols].round(3)
 
     def generate_playlist_from_seed(self, seed_track, seed_artist="", n_recommendations=10):
         """Generate a playlist from a seed track using enhanced recommendations"""

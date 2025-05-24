@@ -154,13 +154,16 @@ def recommend_similar(song_name, artist_name="", n=10):
                 available_tracks_sample = tracks_df[['name', 'artist']].head(10)
                 
                 # Tìm tracks tương tự bằng fuzzy matching
-                from difflib import get_close_matches
-                track_names = tracks_df['name'].tolist()
-                close_matches = get_close_matches(song_name, track_names, n=5, cutoff=0.6)
-                
-                suggestion_text = ""
-                if close_matches:
-                    suggestion_text = f"\n**Gợi ý tương tự:** {', '.join(close_matches[:3])}"
+                try:
+                    from difflib import get_close_matches
+                    track_names = tracks_df['name'].tolist()
+                    close_matches = get_close_matches(song_name, track_names, n=5, cutoff=0.6)
+                    
+                    suggestion_text = ""
+                    if close_matches:
+                        suggestion_text = f"\n**Gợi ý tương tự:** {', '.join(close_matches[:3])}"
+                except ImportError:
+                    suggestion_text = ""
                 
                 return f"""❌ Không tìm thấy bài hát **{song_name}** (nghệ sĩ: {artist_name}) trong dữ liệu.
 {suggestion_text}
@@ -206,12 +209,12 @@ Vui lòng kiểm tra lại tên bài hát và nghệ sĩ!"""
         # Model 1 results
         result += "### 🔍 EnhancedContentRecommender (Fuzzy Search + Smart Scoring):\n"
         if model_1_success and not rec1.empty:
-            display_cols = ['name', 'artist', 'enhanced_score', 'popularity', 'release_year']  # ✅ Sửa content_score thành enhanced_score
+            display_cols = ['name', 'artist', 'enhanced_score', 'popularity', 'release_year']
             available_cols = [col for col in display_cols if col in rec1.columns]
             result += rec1[available_cols].round(3).to_markdown(index=False) + "\n"
             
             # Add quality metrics
-            avg_score = rec1['enhanced_score'].mean() if 'enhanced_score' in rec1.columns else 0  # ✅ Sửa
+            avg_score = rec1['enhanced_score'].mean() if 'enhanced_score' in rec1.columns else 0
             result += f"\n*Avg enhanced score: {avg_score:.3f}*\n"
         else:
             result += "❌ Model failed to generate recommendations\n"

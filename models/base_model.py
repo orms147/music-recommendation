@@ -86,7 +86,9 @@ class BaseRecommender:
             base_cols.insert(0, 'id')
         
         recommendations = self.tracks_df.iloc[sample_indices][base_cols].copy()
-        recommendations['content_score'] = 0.5  # Medium confidence for fallback
+        
+        # Use enhanced_score for consistency across all models
+        recommendations['enhanced_score'] = 0.5  # Medium confidence for fallback
         
         # Add additional metadata if available
         additional_cols = ['popularity', 'release_year', 'artist_popularity']
@@ -107,11 +109,19 @@ class BaseRecommender:
         unique_artists = recommendations['artist'].nunique() if 'artist' in recommendations.columns else 0
         artist_diversity = unique_artists / total_recs if total_recs > 0 else 0
         
-        # Score metrics
-        if 'content_score' in recommendations.columns:
-            avg_score = recommendations['content_score'].mean()
-            min_score = recommendations['content_score'].min()
-            max_score = recommendations['content_score'].max()
+        # Score metrics - check both possible score column names
+        score_col = None
+        if 'enhanced_score' in recommendations.columns:
+            score_col = 'enhanced_score'
+        elif 'content_score' in recommendations.columns:
+            score_col = 'content_score'
+        elif 'final_score' in recommendations.columns:
+            score_col = 'final_score'
+        
+        if score_col:
+            avg_score = recommendations[score_col].mean()
+            min_score = recommendations[score_col].min()
+            max_score = recommendations[score_col].max()
             logger.info(f"[{method}] Recommendations: {total_recs}, Artist diversity: {artist_diversity:.3f}, "
                        f"Score range: {min_score:.3f}-{max_score:.3f} (avg: {avg_score:.3f})")
         else:

@@ -176,33 +176,39 @@ class DataProcessor:
     def _clean_artist_popularity_columns(self, df):
         """Clean artist_popularity columns - chỉ giữ data có nghĩa từ artist_genres.csv"""
         
-        # Step 1: Xác định cột artist_popularity có nghĩa
-        meaningful_col = None
-        if 'artist_popularity_y' in df.columns:
-            meaningful_col = 'artist_popularity_y'
-            logger.info("Found artist_popularity_y - using as primary artist_popularity")
-        elif 'artist_popularity' in df.columns:
-            meaningful_col = 'artist_popularity'
-            logger.info("Found artist_popularity - using as primary")
-        
-        # Step 2: Tạo cột artist_popularity cuối cùng
-        if meaningful_col:
-            df['artist_popularity'] = df[meaningful_col].fillna(50)  # Default value
-            logger.info(f"Set artist_popularity from {meaningful_col}")
-        else:
-            df['artist_popularity'] = 50  # Default for all
-            logger.warning("No meaningful artist_popularity found, using default value 50")
-        
-        # Step 3: Xóa TẤT CẢ các variant columns
-        cols_to_drop = [col for col in df.columns 
-                       if col.startswith('artist_popularity_')]
-        
-        if cols_to_drop:
-            df.drop(columns=cols_to_drop, inplace=True)
-            logger.info(f"Dropped artist_popularity variants: {cols_to_drop}")
-        
-        logger.info("Artist popularity columns cleaned successfully")
-        return df
+        try:
+            # Step 1: Xác định cột artist_popularity có nghĩa
+            meaningful_col = None
+            if 'artist_popularity_y' in df.columns:
+                meaningful_col = 'artist_popularity_y'
+                logger.info("Found artist_popularity_y - using as primary artist_popularity")
+            elif 'artist_popularity' in df.columns:
+                meaningful_col = 'artist_popularity'
+                logger.info("Found artist_popularity - using as primary")
+            
+            # Step 2: Tạo cột artist_popularity cuối cùng
+            if meaningful_col:
+                df['artist_popularity'] = df[meaningful_col].fillna(50)  # Default value
+                logger.info(f"Set artist_popularity from {meaningful_col}")
+            else:
+                df['artist_popularity'] = 50  # Default for all
+                logger.warning("No meaningful artist_popularity found, using default value 50")
+            
+            # Step 3: Xóa TẤT CẢ các variant columns
+            cols_to_drop = [col for col in df.columns 
+                           if col.startswith('artist_popularity_')]
+            
+            if cols_to_drop:
+                df.drop(columns=cols_to_drop, inplace=True)
+                logger.info(f"Dropped artist_popularity variants: {cols_to_drop}")
+            
+            logger.info("Artist popularity columns cleaned successfully")
+            return df
+        except Exception as e:
+            logger.error(f"Error cleaning artist popularity columns: {e}")
+            # Ensure at least a default column exists
+            df['artist_popularity'] = 50
+            return df
     
     def extract_release_year(self):
         """Extract release year from release date"""
