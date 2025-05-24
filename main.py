@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 import gradio as gr
 import pandas as pd
 import numpy as np
-import pickle
 
 from config.config import (
     RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR,
@@ -16,7 +15,7 @@ from config.config import (
 )
 from utils.data_fetcher import fetch_initial_dataset
 from utils.data_processor import DataProcessor
-from models.hybrid_model import MetadataRecommender
+from models.enhanced_content_model import EnhancedContentRecommender
 from models.weighted_content_model import WeightedContentRecommender
 
 # Thiết lập logging
@@ -36,10 +35,10 @@ def initialize_model():
     model_path = os.path.join(MODELS_DIR, 'metadata_recommender.pkl')
     weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
 
-    # MetadataRecommender
+    # EnhancedContentRecommender
     if os.path.exists(model_path):
         try:
-            model = MetadataRecommender.load(model_path)
+            model = EnhancedContentRecommender.load(model_path)
             logging.info(f"Đã nạp model từ {model_path}")
             logging.info(f"Model được huấn luyện vào: {model.train_time}")
         except Exception as e:
@@ -89,7 +88,7 @@ def train_model():
         # Kiểm tra xem mô hình đã tồn tại chưa
         if os.path.exists(model_path):
             logging.info("Tìm thấy mô hình đã huấn luyện, đang nạp...")
-            model = MetadataRecommender.load(model_path)
+            model = EnhancedContentRecommender.load(model_path)
             logging.info(f"Đã nạp mô hình thành công (được huấn luyện vào: {model.train_time})")
         else:
             logging.info("Không tìm thấy mô hình đã lưu, đang huấn luyện mới...")
@@ -98,10 +97,10 @@ def train_model():
                 processor = DataProcessor()
                 processor.process_all()
             tracks_df = pd.read_csv(processed_path)
-            model = MetadataRecommender()
+            model = EnhancedContentRecommender()
             model.train(tracks_df)
             model.save(model_path)
-            logging.info(f"Đã huấn luyện và lưu mô hình MetadataRecommender thành công!")
+            logging.info(f"Đã huấn luyện và lưu mô hình EnhancedContentRecommender thành công!")
 
         # WeightedContentRecommender
         if os.path.exists(weighted_model_path):
@@ -205,22 +204,22 @@ Vui lòng kiểm tra lại tên bài hát và nghệ sĩ!"""
         result = seed_info
         
         # Model 1 results
-        result += "### 📊 MetadataRecommender (Content-Based):\n"
+        result += "### 🔍 EnhancedContentRecommender (Fuzzy Search + Smart Scoring):\n"
         if model_1_success and not rec1.empty:
-            display_cols = ['name', 'artist', 'content_score', 'popularity', 'release_year']
+            display_cols = ['name', 'artist', 'enhanced_score', 'popularity', 'release_year']  # ✅ Sửa content_score thành enhanced_score
             available_cols = [col for col in display_cols if col in rec1.columns]
             result += rec1[available_cols].round(3).to_markdown(index=False) + "\n"
             
             # Add quality metrics
-            avg_score = rec1['content_score'].mean() if 'content_score' in rec1.columns else 0
-            result += f"\n*Avg similarity: {avg_score:.3f}*\n"
+            avg_score = rec1['enhanced_score'].mean() if 'enhanced_score' in rec1.columns else 0  # ✅ Sửa
+            result += f"\n*Avg enhanced score: {avg_score:.3f}*\n"
         else:
             result += "❌ Model failed to generate recommendations\n"
         
         result += "\n---\n"
         
         # Model 2 results
-        result += "### ⚖️ WeightedContentRecommender (Advanced Scoring):\n"
+        result += "### 🎯 WeightedContentRecommender (Language-First + Mood Hierarchy):\n"
         if model_2_success and not rec2.empty:
             display_cols = ['name', 'artist', 'final_score', 'popularity', 'release_year']
             available_cols = [col for col in display_cols if col in rec2.columns]
@@ -237,22 +236,6 @@ Vui lòng kiểm tra lại tên bài hát và nghệ sĩ!"""
     except Exception as e:
         logger.error(f"Lỗi khi đề xuất: {e}\n{traceback.format_exc()}")
         return f"❌ Lỗi hệ thống khi đề xuất: {str(e)}"
-
-def discover_by_genre(genre, n=10):
-    global model
-    if model is None or not model.is_trained:
-        return "⚠️ Vui lòng huấn luyện mô hình trước."
-    try:
-        recs = model.discover_by_genre(genre, n)
-        if recs is None or recs.empty:
-            return f"Không tìm thấy bài hát thuộc thể loại {genre}."
-        result = f"## Top {n} bài hát thể loại {genre}\n"
-        for i, row in enumerate(recs.itertuples(), 1):
-            result += f"{i}. **{row.name}** - {row.artist}\n"
-        return result
-    except Exception as e:
-        logger.error(f"Lỗi khám phá thể loại: {e}\n{traceback.format_exc()}")
-        return f"❌ Lỗi khám phá thể loại: {e}"
 
 def check_data_status():
     """Check data completeness and quality for recommendation system"""
