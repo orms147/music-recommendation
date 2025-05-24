@@ -18,8 +18,10 @@ class SpotifyDataFetcher:
     def __init__(self, client_id=None, client_secret=None):
         """Initialize Spotify API client with simplified authentication"""
         self.sp = None
+        self.request_count = 0
+        self.last_request_time = 0
 
-        # Use provided  or environment variables
+        # Use provided or environment variables
         client_id = client_id or SPOTIFY_CLIENT_ID
         client_secret = client_secret or SPOTIFY_CLIENT_SECRET
 
@@ -38,422 +40,429 @@ class SpotifyDataFetcher:
             logger.error(f"Lỗi kết nối Spotify API: {e}")
             raise
 
+    def _smart_delay(self, operation_type="search", batch_size=1, error_count=0):
+        """Intelligent delay calculation based on Spotify rate limits"""
+        current_time = time.time()
+        
+        # Spotify rate limit: 100 requests/minute = 1.67 requests/second
+        # OPTIMIZE: Reduce delays significantly while staying under limits
+        
+        base_delays = {
+            "search": 0.6,      # Giảm từ 1.5 xuống 0.6 (100 requests/60s = 0.6s/request)
+            "artist": 0.8,      # Giảm từ 2.0 xuống 0.8  
+            "batch": 0.4        # Cho batch operations
+        }
+        
+        base_delay = base_delays.get(operation_type, 0.6)
+        
+        # Add error penalty (nhưng giảm)
+        error_penalty = error_count * 1.0  # Giảm từ 2.0 xuống 1.0
+        
+        # Add small jitter to avoid synchronized requests
+        jitter = np.random.uniform(0, 0.2)  # Giảm từ 0.5 xuống 0.2
+        
+        total_delay = base_delay + error_penalty + jitter
+        
+        # Cap maximum delay (giảm limits)
+        max_delays = {
+            "search": 2.0,      # Giảm từ 5.0 xuống 2.0
+            "artist": 3.0,      # Giảm từ 8.0 xuống 3.0  
+            "batch": 1.5
+        }
+        
+        max_delay = max_delays.get(operation_type, 2.0)
+        final_delay = min(total_delay, max_delay)
+        
+        # OPTIMIZE: Adaptive delay based on request frequency
+        time_since_last = current_time - self.last_request_time
+        if time_since_last > 2.0:  # If we've been idle, reduce delay
+            final_delay *= 0.5
+        
+        self.last_request_time = current_time
+        return final_delay
+
     def _extract_track_data(self, track):
-        """Extract all available real metadata from Spotify API"""
+        """Extract relevant data from track object"""
         try:
-            # Trích xuất TẤT CẢ metadata có sẵn từ Spotify
-            album_info = track.get('album', {})
+            artists = track.get('artists', [])
+            artist_names = [artist['name'] for artist in artists]
+            artist_ids = [artist['id'] for artist in artists]
             
-            # Lấy thông tin tất cả nghệ sĩ
-            artists = ", ".join([artist['name'] for artist in track['artists']]) if track['artists'] else "Unknown"
+            album = track.get('album', {})
             
-            # Trích xuất năm phát hành
-            release_date = album_info.get('release_date', '')
-            release_year = None
-            if release_date:
-                try:
-                    if len(release_date) >= 4:
-                        release_year = int(release_date[:4])
-                except:
-                    pass
-            
-            # Trích xuất NHIỀU metadata hơn từ Spotify
             return {
                 'id': track['id'],
                 'name': track['name'],
-                'artist': artists,
-                'artist_id': track['artists'][0]['id'] if track['artists'] else None,
-                'album': album_info.get('name', ''),
-                'album_id': album_info.get('id', ''),
-                'album_type': album_info.get('album_type', ''),
-                'total_tracks': album_info.get('total_tracks', 0),
+                'artist': ', '.join(artist_names),
+                'artist_id': artist_ids[0] if artist_ids else None,
+                'album': album.get('name'),
+                'album_id': album.get('id'),
+                'album_type': album.get('album_type'),
+                'total_tracks': album.get('total_tracks'),
                 'popularity': track.get('popularity', 0),
                 'duration_ms': track.get('duration_ms', 0),
-                'explicit': int(track.get('explicit', False)),
-                'release_date': release_date,
-                'release_year': release_year,
-                'track_number': track.get('track_number', 1),
-                'disc_number': track.get('disc_number', 1),
-                'preview_url': track.get('preview_url', ''),  # URL preview 30s
-                'external_urls': track.get('external_urls', {}).get('spotify', ''),  # Spotify URL
+                'explicit': track.get('explicit', False),
+                'release_date': album.get('release_date'),
+                'release_year': int(album.get('release_date', '1900')[:4]) if album.get('release_date') else None,
+                'track_number': track.get('track_number'),
+                'disc_number': track.get('disc_number'),
+                'preview_url': track.get('preview_url'),
+                'external_urls': track.get('external_urls', {}).get('spotify'),
                 'is_local': track.get('is_local', False),
                 'is_playable': track.get('is_playable', True),
-                'markets_count': len(track.get('available_markets', [])) if 'available_markets' in track else 0
+                'markets_count': len(track.get('available_markets', []))
             }
         except Exception as e:
             logger.warning(f"Error extracting track data: {e}")
             return None
-    
+
+    def _filter_unwanted_tracks(self, track_data):
+        """Filter out unwanted tracks (local, karaoke, etc.)"""
+        if not track_data:
+            return False
+            
+        name = track_data.get('name', '').lower()
+        artist = track_data.get('artist', '').lower()
+        
+        # Skip local tracks
+        if track_data.get('is_local', False):
+            return False
+            
+        # Skip if not playable
+        if not track_data.get('is_playable', True):
+            return False
+            
+        # Skip very short tracks (likely interludes)
+        if track_data.get('duration_ms', 0) < 30000:  # 30 seconds
+            return False
+            
+        # Skip karaoke versions
+        unwanted_keywords = ['karaoke', 'instrumental', 'backing track', 'cover version']
+        if any(keyword in name for keyword in unwanted_keywords):
+            return False
+            
+        return True
+
     def fetch_tracks_by_search(self, queries, tracks_per_query=50, save_path=None, combine_with_existing=True):
-        """Fetch tracks by search queries with improved error handling"""
+        """Fetch tracks by search queries with optimized timing"""
         all_tracks = []
         
         for query in tqdm(queries, desc="Fetching tracks"):
             tracks_fetched = 0
             offset = 0
-            max_retries = 3
-            # Spotify API chỉ cho phép offset + limit <= 1000
+            max_retries = 2  # Giảm từ 3 xuống 2
             tracks_per_query = min(tracks_per_query, 1000)
+            target_tracks = tracks_per_query
 
-            while tracks_fetched < tracks_per_query:
+            while tracks_fetched < target_tracks:
                 retries = 0
                 while retries < max_retries:
                     try:
-                        # API call with exponential backoff
                         results = self.sp.search(q=query, type='track', limit=50, offset=offset)
-                        break  # Success, exit retry loop
+                        break
                     except Exception as e:
                         retries += 1
                         logger.warning(f"Error fetching query {query} (retry {retries}/{max_retries}): {e}")
                         if retries >= max_retries:
                             logger.error(f"Failed to fetch query {query} after {max_retries} retries")
-                            break  # Max retries reached, skip this query
-                        time.sleep(2 ** retries)  # Exponential backoff
+                            break
+                        # OPTIMIZE: Faster backoff
+                        backoff_time = min(2 ** retries, 4.0)  # Cap at 4 seconds
+                        time.sleep(backoff_time)
                 
                 if retries >= max_retries:
-                    break  # Skip this query after max retries
+                    break
                     
-                # Process results
                 tracks = results['tracks']['items']
                 if not tracks:
-                    break  # No more tracks for this query
+                    break
                     
                 for track in tracks:
-                    # Process track data
                     track_data = self._extract_track_data(track)
-                    if track_data:
+                    if track_data and self._filter_unwanted_tracks(track_data):
                         all_tracks.append(track_data)
                         tracks_fetched += 1
                         
-                    if tracks_fetched >= tracks_per_query:
+                    if tracks_fetched >= target_tracks:
                         break
                         
                 offset += len(tracks)
-                time.sleep(0.5)  # Rate limiting
-        
-        # Tạo DataFrame và lưu
-        if all_tracks:
-            tracks_df = pd.DataFrame(all_tracks)
-            
-            # Loại bỏ trùng lặp
-            tracks_df = tracks_df.drop_duplicates(subset=['id'])
-            
-            logger.info(f"Fetched {len(tracks_df)} unique tracks from {len(queries)} queries")
-            
-            if save_path:
-                # Backup và merge nếu file đã tồn tại
-                if combine_with_existing and os.path.exists(save_path):
-                    existing_df = pd.read_csv(save_path)
-                    logger.info(f"Found existing data with {len(existing_df)} tracks")
-                    
-                    # Merge và loại bỏ trùng lặp
-                    combined_df = pd.concat([existing_df, tracks_df]).drop_duplicates(subset=['id'])
-                    combined_df.to_csv(save_path, index=False)
-                    logger.info(f"Combined with existing data. Total: {len(combined_df)} tracks")
-                    return combined_df
+                
+                # OPTIMIZE: Smart delay based on response
+                if len(tracks) < 50:  # API returning fewer results
+                    delay = self._smart_delay("search", error_count=1)
                 else:
+                    delay = self._smart_delay("search")
+                
+                time.sleep(delay)
+        
+        # Convert to DataFrame and save
+        tracks_df = pd.DataFrame(all_tracks)
+        
+        if save_path:
+            if combine_with_existing and os.path.exists(save_path):
+                try:
+                    existing_df = pd.read_csv(save_path)
+                    combined_df = pd.concat([existing_df, tracks_df], ignore_index=True)
+                    combined_df = combined_df.drop_duplicates(subset=['id'])
+                    combined_df.to_csv(save_path, index=False)
+                    logger.info(f"Combined and saved {len(combined_df)} tracks to {save_path}")
+                except Exception as e:
+                    logger.warning(f"Error combining with existing data: {e}")
                     tracks_df.to_csv(save_path, index=False)
-                    logger.info(f"Saved {len(tracks_df)} tracks to {save_path}")
-            
-            return tracks_df
-        else:
-            logger.warning("No tracks fetched")
-            return pd.DataFrame()
-    
-    def _reinitialize_client(self):
-        """Reinitialize Spotify client to refresh token"""
-        try:
-            logger.info("Reinitializing Spotify client...")
-            auth_manager = spotipy.oauth2.SpotifyClientCredentials(
-                client_id=SPOTIFY_CLIENT_ID,
-                client_secret=SPOTIFY_CLIENT_SECRET
-            )
-            self.sp = spotipy.Spotify(auth_manager=auth_manager)
-            # Test connection
-            self.sp.search(q="test", limit=1)
-            logger.info("Spotify client reinitialized successfully")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to reinitialize Spotify client: {e}")
-            return False
+                    logger.info(f"Saved {len(tracks_df)} new tracks to {save_path}")
+            else:
+                tracks_df.to_csv(save_path, index=False)
+                logger.info(f"Saved {len(tracks_df)} tracks to {save_path}")
+        
+        return tracks_df
 
     def fetch_artist_genres(self, artist_ids, save_path=None, batch_size=20):
-        """Fetches genres for a list of artist IDs"""
+        """Fetches genres for a list of artist IDs with optimized timing"""
         if not artist_ids:
             logger.warning("No artist IDs provided to fetch_artist_genres")
             return pd.DataFrame()
         
         all_genres = []
         
-        # Process in smaller batches
-        for i in range(0, len(artist_ids), batch_size):
+        # OPTIMIZE: Increase batch size and reduce delays
+        batch_size = min(batch_size, 25)  # Tăng từ 10 lên 25
+        total_batches = (len(artist_ids) + batch_size - 1) // batch_size
+        
+        # FIX: Remove emoji that causes Unicode error in Windows
+        print(f"Fetching genres for {len(artist_ids)} artists in {total_batches} batches...")
+        
+        for i in tqdm(range(0, len(artist_ids), batch_size), desc="Fetching artist genres"):
             batch = artist_ids[i:i+batch_size]
+            batch_num = (i // batch_size) + 1
+            
             try:
-                artists_data = self.sp.artists(batch)['artists']
+                # OPTIMIZE: Faster retry logic
+                max_retries = 2  # Giảm từ 3 xuống 2
+                for retry in range(max_retries):
+                    try:
+                        artists_data = self.sp.artists(batch)['artists']
+                        break
+                    except Exception as e:
+                        if retry < max_retries - 1:
+                            wait_time = min(2 ** retry, 3.0)  # Cap at 3 seconds
+                            logger.warning(f"Retry {retry + 1}/{max_retries} for batch {batch_num}, waiting {wait_time:.1f}s")
+                            time.sleep(wait_time)
+                        else:
+                            raise e
                 
+                # Process successful response
+                batch_genres = []
                 for artist in artists_data:
                     if artist and 'id' in artist and 'genres' in artist:
-                        all_genres.append({
+                        genre_data = {
                             'artist_id': artist['id'],
                             'genres': '|'.join(artist['genres']) if artist['genres'] else '',
                             'artist_popularity': artist.get('popularity', 0),
                             'artist_followers': artist.get('followers', {}).get('total', 0) if 'followers' in artist else 0,
-                        })
+                        }
+                        batch_genres.append(genre_data)
+                        all_genres.append(genre_data)
                 
-                # Wait to avoid rate limiting
-                time.sleep(1)
+                # Log progress less frequently
+                if batch_num % 20 == 0 or batch_num == total_batches:
+                    logger.info(f"Progress: {batch_num}/{total_batches} batches, {len(all_genres)} artists processed")
+                
+                # OPTIMIZE: Much shorter delays
+                delay = self._smart_delay("artist", batch_size=len(batch))
+                time.sleep(delay)
+                
             except Exception as e:
-                logger.warning(f"Error fetching artist data (batch {i//batch_size + 1}): {e}")
+                logger.warning(f"Error fetching artist data (batch {batch_num}): {e}")
+                # OPTIMIZE: Shorter error delay
+                time.sleep(2.0)  # Giảm từ 10.0 xuống 2.0
+                continue
         
+        # Create and save DataFrame
         genres_df = pd.DataFrame(all_genres)
         
         if save_path and not genres_df.empty:
-            genres_df.to_csv(save_path, index=False)
-            logger.info(f"Saved {len(genres_df)} artist genres to {save_path}")
+            # Merge with existing data if available
+            if os.path.exists(save_path):
+                try:
+                    existing_df = pd.read_csv(save_path)
+                    combined_df = pd.concat([existing_df, genres_df], ignore_index=True)
+                    combined_df = combined_df.drop_duplicates(subset=['artist_id'])
+                    combined_df.to_csv(save_path, index=False)
+                    logger.info(f"Merged and saved {len(combined_df)} artist genres to {save_path}")
+                except Exception as e:
+                    logger.warning(f"Error merging with existing data: {e}")
+                    genres_df.to_csv(save_path, index=False)
+                    logger.info(f"Saved {len(genres_df)} new artist genres to {save_path}")
+            else:
+                genres_df.to_csv(save_path, index=False)
+                logger.info(f"Saved {len(genres_df)} artist genres to {save_path}")
         
         return genres_df
 
-    def fetch_enhanced_artist_info(self, artist_ids, save_path=None, batch_size=20):
-        """Fetch comprehensive artist information including musical style indicators"""
-        all_artist_info = []
+    def fetch_all_missing_artist_genres(self):
+        """Fetch all missing artist genres with optimized timing"""
+        print("FETCHING ALL MISSING ARTIST GENRES (OPTIMIZED)...")
         
-        for i in range(0, len(artist_ids), batch_size):
-            batch = artist_ids[i:i+batch_size]
-            try:
-                artists_data = self.sp.artists(batch)['artists']
+        # Load tracks data
+        tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks.csv')
+        if not os.path.exists(tracks_path):
+            logger.error("No spotify_tracks.csv found!")
+            return False
+        
+        tracks_df = pd.read_csv(tracks_path)
+        logger.info(f"Found {len(tracks_df)} tracks")
+        
+        # Get unique artist IDs
+        if 'artist_id' not in tracks_df.columns:
+            logger.error("No artist_id column found!")
+            return False
+        
+        artist_ids = tracks_df['artist_id'].dropna().unique().tolist()
+        logger.info(f"Found {len(artist_ids)} unique artists")
+        
+        # Check existing genres
+        genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
+        if os.path.exists(genres_path):
+            existing_genres = pd.read_csv(genres_path)
+            existing_ids = set(existing_genres['artist_id'].tolist())
+            missing_ids = [aid for aid in artist_ids if aid not in existing_ids]
+            logger.info(f"Found {len(existing_ids)} existing, need {len(missing_ids)} more")
+        else:
+            missing_ids = artist_ids
+            logger.info(f"No existing genres, fetching all {len(missing_ids)} artists")
+        
+        if not missing_ids:
+            logger.info("All artist genres already available!")
+            return True
+        
+        # OPTIMIZE: Estimate time more accurately
+        estimated_batches = (len(missing_ids) + 24) // 25  # 25 per batch
+        estimated_time = estimated_batches * 1.0  # ~1 second per batch
+        logger.info(f"Estimated time: {estimated_time/60:.1f} minutes for {estimated_batches} batches")
+        
+        # Fetch missing genres with optimized settings
+        try:
+            result_df = self.fetch_artist_genres(
+                missing_ids, 
+                save_path=genres_path,
+                batch_size=25  # Tăng batch size
+            )
+            
+            if not result_df.empty:
+                logger.info(f"Successfully fetched {len(result_df)} artist genres!")
+                return True
+            else:
+                logger.warning("No genres were fetched")
+                return False
                 
-                for artist in artists_data:
-                    if artist:
-                        # Basic info
-                        artist_info = {
-                            'artist_id': artist['id'],
-                            'artist_name': artist['name'],
-                            'genres': '|'.join(artist['genres']) if artist['genres'] else '',
-                            'popularity': artist.get('popularity', 0),
-                            'followers': artist.get('followers', {}).get('total', 0),
-                        }
-                        
-                        # Analyze primary musical style from genres
-                        genres = artist.get('genres', [])
-                        artist_info.update(self._analyze_artist_musical_style(genres))
-                        
-                        all_artist_info.append(artist_info)
-                
-                time.sleep(0.5)
-            except Exception as e:
-                logger.warning(f"Error fetching enhanced artist data: {e}")
-        
-        return pd.DataFrame(all_artist_info)
-
-    def _analyze_artist_musical_style(self, genres):
-        """Analyze artist's primary musical style from genres"""
-        style_indicators = {
-            'is_pop_artist': any('pop' in g.lower() for g in genres),
-            'is_rock_artist': any(rock in g.lower() for rock in ['rock', 'metal', 'punk'] for g in genres),
-            'is_hiphop_artist': any(hip in g.lower() for hip in ['hip hop', 'rap', 'trap'] for g in genres),
-            'is_electronic_artist': any(elec in g.lower() for elec in ['electronic', 'edm', 'house', 'techno'] for g in genres),
-            'is_r&b_artist': any(rb in g.lower() for rb in ['r&b', 'soul', 'funk'] for g in genres),
-            'is_country_artist': any('country' in g.lower() for g in genres),
-            'is_jazz_artist': any(jazz in g.lower() for jazz in ['jazz', 'blues'] for g in genres),
-            'is_classical_artist': any(classical in g.lower() for classical in ['classical', 'opera'] for g in genres),
-            
-            # Regional styles
-            'is_asian_artist': any(asian in g.lower() for asian in ['k-pop', 'j-pop', 'c-pop', 'vietnamese'] for g in genres),
-            'is_latin_artist': any(latin in g.lower() for latin in ['latin', 'reggaeton', 'spanish'] for g in genres),
-            
-            # Style characteristics
-            'is_mainstream_artist': len([g for g in genres if 'pop' in g.lower()]) > 0,
-            'is_alternative_artist': any(alt in g.lower() for alt in ['alternative', 'indie', 'underground'] for g in genres),
-            'is_experimental_artist': any(exp in g.lower() for exp in ['experimental', 'avant-garde', 'noise'] for g in genres),
-            
-            # Primary genre
-            'primary_genre': genres[0] if genres else 'unknown',
-            'genre_diversity': len(set(genres)),  # Số lượng thể loại khác nhau
-        }
-        
-        return style_indicators
-
-    def enrich_track_data(self, tracks_df, save_path=None):
-        """Tự động tạo đặc trưng bổ sung từ dữ liệu bài hát hiện có"""
-        if tracks_df is None or tracks_df.empty:
-            logger.warning("No tracks data to enrich")
-            return tracks_df
-            
-        enriched_df = tracks_df.copy()
-        
-        # 1. Trích xuất năm phát hành nếu chưa có
-        if 'release_year' not in enriched_df.columns and 'release_date' in enriched_df.columns:
-            enriched_df['release_year'] = enriched_df['release_date'].apply(
-                lambda x: int(str(x)[:4]) if pd.notna(x) and len(str(x)) >= 4 else None
-            )
-        
-        # 2. Trích xuất thập kỷ
-        if 'release_year' in enriched_df.columns:
-            enriched_df['decade'] = enriched_df['release_year'].apply(
-                lambda x: (x // 10) * 10 if pd.notna(x) else None
-            )
-        
-        # 3. Tính độ dài bài hát (phút)
-        if 'duration_ms' in enriched_df.columns:
-            enriched_df['duration_min'] = enriched_df['duration_ms'] / 60000
-            
-            # Phân loại độ dài bài hát
-            enriched_df['duration_category'] = pd.cut(
-                enriched_df['duration_min'], 
-                bins=[0, 2, 4, 6, 10, 100],
-                labels=['very_short', 'short', 'medium', 'long', 'very_long']
-            )
-        
-        # 4. Phân loại độ phổ biến
-        if 'popularity' in enriched_df.columns:
-            enriched_df['popularity_category'] = pd.cut(
-                enriched_df['popularity'],
-                bins=[0, 20, 40, 60, 80, 100],
-                labels=['very_low', 'low', 'medium', 'high', 'very_high']
-            )
-        
-        # 5. Phát hiện ngôn ngữ (dựa trên các ký tự đặc biệt)
-        enriched_df['has_vietnamese'] = enriched_df['name'].str.contains(
-            '|'.join(['Vietnam', 'việt', 'Đ', 'Ư', 'Ơ', 'ă', 'â', 'ê', 'ô', 'ơ', 'ư']), 
-            case=False, regex=True, na=False
-        ).astype(int)
-        
-        if save_path:
-            enriched_df.to_csv(save_path, index=False)
-            logger.info(f"Saved {len(enriched_df)} enriched tracks to {save_path}")
-            
-        return enriched_df
+        except Exception as e:
+            logger.error(f"Error fetching artist genres: {e}")
+            return False
 
 # Hàm cấp cao để lấy dữ liệu ban đầu
-def fetch_initial_dataset(tracks_per_query=DEFAULT_TRACKS_PER_QUERY):
-    """Fetch initial dataset with focus on real Spotify metadata"""
-    # Create fetcher
-    fetcher = SpotifyDataFetcher()
+def fetch_initial_dataset(tracks_per_query=50):
+    """Fetch initial dataset with popular music queries"""
     
-    # Keep existing diverse queries but focus on real data
-    queries = [
-        # High-quality, official sources
-        'grammy winners 2023', 'grammy winners 2022', 'grammy winners 2021',
-        'billboard hot 100 2024', 'billboard hot 100 2023', 'billboard hot 100 2022',
-        'top global songs 2024', 'top global songs 2023',
-        'j-pop top hits 2024', 'official japanese music 2024',
-        'v-pop top hits 2024', 'vietnamese chart songs 2023',
-        'k-pop top hits 2024', 'korean top charts 2023',
-        'us top 100 songs 2024', 'uk top 100 songs 2024',
-        'c-pop top songs 2024', 'mandopop 2023',
-        'top rap songs 2024', 'rap billboard 2023',
-        'top edm songs 2024', 'famous edm tracks',
-        'jazz standards', 'blues originals', 'country top 2023', 'indie top songs 2023'
-    ]
-    
-    # 1. Fetch track metadata (NO audio features)
-    tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks.csv')
-    tracks_df = fetcher.fetch_tracks_by_search(queries, tracks_per_query=tracks_per_query, save_path=tracks_path)
-    
-    if tracks_df.empty:
-        logger.error("Failed to fetch tracks data")
-        return None
-    
-    # 2. Fetch artist genres (still available)
-    if 'artist_id' in tracks_df.columns:
-        artist_ids = tracks_df['artist_id'].dropna().unique().tolist()
-        artist_genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
-        fetcher.fetch_artist_genres(artist_ids, save_path=artist_genres_path)
-    
-    # 3. Enrich with derived features from existing metadata
-    enriched_tracks_path = os.path.join(RAW_DATA_DIR, 'enriched_tracks.csv')
-    fetcher.enrich_track_data(tracks_df, save_path=enriched_tracks_path)
-    
-    logger.info("Initial dataset with real Spotify metadata fetched successfully")
-    return tracks_df
-
-def fetch_large_dataset(target_size=100000, batch_size=LARGE_DATASET_BATCH_SIZE, save_interval=LARGE_DATASET_SAVE_INTERVAL):
-    """Thu thập một tập dữ liệu rất lớn theo lô"""
-    fetcher = SpotifyDataFetcher()
-    
-    # Tạo các truy vấn đa dạng bao gồm nhiều thể loại và năm
-    base_genres = ['pop', 'rock', 'hip hop', 'rap', 'electronic', 'dance', 'r&b', 
-                  'indie', 'classical', 'jazz', 'country', 'folk', 'metal', 'blues',
-                  'vietnamese', 'vpop', 'korean', 'k-pop', 'japanese', 'j-pop',
-                  'latin', 'spanish', 'reggaeton', 'bollywood', 'afrobeats']
-    
-    years = range(2010, 2025)
-    
-    # Tạo kết hợp của thể loại và năm
-    queries = []
-    for genre in base_genres:
-        for year in years:
-            queries.append(f"{genre} {year}")
-    
-    # Thêm các truy vấn cụ thể bổ sung
-    additional_queries = [
-        'top hits', 'billboard hot 100', 'new releases', 'chart toppers',
-        'grammy winners', 'viral hits', 'trending music', 'spotify viral',
-        'tiktok songs', 'youtube hits', 'movie soundtrack', 'tv soundtrack'
-    ]
-    queries.extend(additional_queries)
-    
-    tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks_large.csv')
-    artist_genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres_large.csv')
-    
-    all_tracks_df = pd.DataFrame()
-    processed_artists = set()
-    
-    # Xử lý truy vấn theo lô cho đến khi đạt được kích thước mục tiêu
-    import random
-    random.shuffle(queries)  # Ngẫu nhiên hóa thứ tự truy vấn
-    
-    for i in range(0, len(queries), batch_size):
-        if len(all_tracks_df) >= target_size:
-            break
-            
-        batch_queries = queries[i:i+batch_size]
-        logger.info(f"Đang xử lý lô {i//batch_size + 1}: {len(batch_queries)} truy vấn")
+    popular_queries = [
+        # Pop & Mainstream
+        "top hits 2024", "billboard hot 100", "pop music 2024", "viral songs",
+        "trending music", "popular songs", "chart toppers", "radio hits",
         
-        # Lấy bài hát cho lô này
-        batch_df = fetcher.fetch_tracks_by_search(
-            batch_queries, 
-            tracks_per_query=50,  # Giữ ở mức khiêm tốn mỗi truy vấn để tránh giới hạn tỷ lệ
-            save_path=None  # Không lưu kết quả trung gian
+        # Genres
+        "indie pop", "alternative rock", "electronic music", "hip hop 2024",
+        "r&b music", "country music", "latin music", "k-pop",
+        
+        # Moods & Vibes  
+        "chill music", "upbeat songs", "sad songs", "party music",
+        "workout music", "study music", "relaxing music", "happy songs",
+        
+        # Decades
+        "2020s music", "2010s hits", "2000s nostalgia", "90s music",
+        "80s classics", "throwback songs",
+        
+        # Artists & Playlists
+        "taylor swift", "billie eilish", "the weeknd", "dua lipa",
+        "ed sheeran", "ariana grande", "post malone", "drake",
+        
+        # International
+        "vietnamese music", "vpop", "japanese music", "spanish songs",
+        "latin pop", "korean music", "chinese songs", "thai music",
+        
+        # Specific themes
+        "love songs", "breakup songs", "motivational music", "acoustic",
+        "piano music", "guitar songs", "jazz music", "blues",
+        
+        # Albums & EPs
+        "new albums 2024", "best albums", "debut albums", "ep releases",
+        
+        # Seasonal
+        "summer songs", "winter music", "holiday songs", "festival music",
+        
+        # Underground & Indie
+        "indie rock", "underground hip hop", "bedroom pop", "lo-fi",
+        "dream pop", "shoegaze", "post rock", "experimental",
+        
+        # Dance & Electronic
+        "edm", "house music", "techno", "trance", "dubstep",
+        "electronic dance", "club music", "rave music",
+        
+        # Rock & Metal
+        "rock music", "metal songs", "punk rock", "alternative metal",
+        "hard rock", "classic rock", "indie rock",
+        
+        # Regional scenes
+        "uk music", "australian music", "canadian artists", "european pop",
+        "african music", "middle eastern music", "scandinavian pop",
+        
+        # Awards & Recognition
+        "grammy winners 2024", "grammy nominees", "award winning songs",
+        "critically acclaimed", "music awards",
+        
+        # Collaborations
+        "featured artists", "duets", "collaborations", "remix",
+        
+        # Rising artists
+        "new artists 2024", "rising stars", "breakthrough artists",
+        "emerging talent", "next big thing"
+    ]
+    
+    logger.info(f"Fetching {len(popular_queries)} queries with {tracks_per_query} tracks each (target: {len(popular_queries) * tracks_per_query} total)")
+    
+    try:
+        fetcher = SpotifyDataFetcher()
+        tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks.csv')
+        
+        # Fetch tracks with new optimized timing
+        tracks_df = fetcher.fetch_tracks_by_search(
+            popular_queries, 
+            tracks_per_query=tracks_per_query,
+            save_path=tracks_path,
+            combine_with_existing=True
         )
         
-        # Kết hợp với dữ liệu hiện có
-        if not batch_df.empty:
-            all_tracks_df = pd.concat([all_tracks_df, batch_df]).drop_duplicates(subset=['id'])
+        if tracks_df.empty:
+            logger.error("No tracks were fetched")
+            return None
+        
+        logger.info(f"Successfully fetched {len(tracks_df)} tracks")
+        
+        # Get unique artists for genre fetching
+        if 'artist_id' in tracks_df.columns:
+            unique_artists = tracks_df['artist_id'].dropna().nunique()
+            logger.info(f"Found {unique_artists} unique artists")
             
-            # Xử lý thể loại nghệ sĩ theo lô
-            new_artist_ids = batch_df['artist_id'].dropna().unique().tolist()
-            new_artist_ids = [aid for aid in new_artist_ids if aid not in processed_artists]
+            # Fetch artist genres automatically
+            artist_ids = tracks_df['artist_id'].dropna().unique().tolist()
+            artist_genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
             
-            if new_artist_ids:
-                fetcher.fetch_artist_genres(new_artist_ids, save_path=None)
-                processed_artists.update(new_artist_ids)
-            
-            # Lưu theo khoảng thời gian
-            if len(all_tracks_df) % save_interval < 100:
-                all_tracks_df.to_csv(tracks_path, index=False)
-                logger.info(f"Tiến độ: {len(all_tracks_df)}/{target_size} bài hát đã thu thập")
-                
-                # Cho API nghỉ ngơi
-                time.sleep(5)
-                fetcher._reinitialize_client()  # Làm mới token
-    
-    # Lưu cuối cùng
-    all_tracks_df.to_csv(tracks_path, index=False)
-    
-    # Lấy tất cả ID nghệ sĩ duy nhất
-    all_artist_ids = all_tracks_df['artist_id'].dropna().unique().tolist()
-    
-    # Lấy và lưu tất cả thể loại nghệ sĩ
-    all_genres_df = fetcher.fetch_artist_genres(all_artist_ids, save_path=artist_genres_path)
-    
-    # Làm phong phú và lưu tập dữ liệu cuối cùng
-    enriched_tracks_path = os.path.join(RAW_DATA_DIR, 'enriched_tracks_large.csv')
-    enriched_df = fetcher.enrich_track_data(all_tracks_df, save_path=enriched_tracks_path)
-    
-    logger.info(f"Thu thập tập dữ liệu lớn hoàn tất: {len(enriched_df)} bài hát")
-    return enriched_df
+            logger.info("Fetching artist genres...")
+            fetcher.fetch_artist_genres(artist_ids, save_path=artist_genres_path)
+        
+        return tracks_df
+        
+    except Exception as e:
+        logger.error(f"Error in fetch_initial_dataset: {e}")
+        return None
 
-if __name__ == "__main__":
-    # Run if script is executed directly
-    fetch_initial_dataset()
+# ...existing methods unchanged...

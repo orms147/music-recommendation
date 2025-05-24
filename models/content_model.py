@@ -5,7 +5,6 @@ import os
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 from models.base_model import BaseRecommender
-from config.config import CONTENT_FEATURES
 from scipy import sparse
 
 logger = logging.getLogger(__name__)

@@ -26,36 +26,231 @@ class DataProcessor:
         
         # Ưu tiên dùng enriched_tracks nếu có
         if os.path.exists(enriched_path):
+            logger.info(f"Loading enriched tracks from {enriched_path}")
             self.tracks_df = pd.read_csv(enriched_path)
-            logger.info(f"Loaded {len(self.tracks_df)} enriched tracks from {enriched_path}")
         elif os.path.exists(tracks_path):
+            logger.info(f"Loading basic tracks from {tracks_path}")
             self.tracks_df = pd.read_csv(tracks_path)
-            logger.info(f"Loaded {len(self.tracks_df)} tracks from {tracks_path}")
         else:
-            logger.warning(f"Track data files not found")
-            self.tracks_df = pd.DataFrame()
+            logger.error("No track data files found!")
+            return False
         
-        # LOẠI BỎ audio_features loading vì Spotify đã chặn
-        # self.audio_features_df = None  # Không sử dụng
-        
-        # Đọc thông tin thể loại nghệ sĩ (vẫn còn available)
-        genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
-        if os.path.exists(genres_path):
-            self.artist_genres_df = pd.read_csv(genres_path)
-            logger.info(f"Loaded genre data for {len(self.artist_genres_df)} artists")
+        # Đọc thông tin thể loại nghệ sĩ
+        artist_genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
+        if os.path.exists(artist_genres_path):
+            logger.info(f"Loading artist genres from {artist_genres_path}")
+            self.artist_genres_df = pd.read_csv(artist_genres_path)
         else:
-            logger.warning(f"Artist genres file not found: {genres_path}")
-            self.artist_genres_df = pd.DataFrame()
+            logger.warning("No artist genres file found - will attempt to fetch from Spotify")
+            # CẢI THIỆN: Tự động fetch artist genres nếu thiếu
+            if self._fetch_missing_artist_genres():
+                self.artist_genres_df = pd.read_csv(artist_genres_path)
+            else:
+                logger.warning("Failed to fetch artist genres, will use fallback genre features")
+                self.artist_genres_df = None
         
-        # Log available real features
-        if not self.tracks_df.empty:
-            real_features = ['popularity', 'duration_ms', 'explicit', 'release_year', 
-                           'album_type', 'total_tracks', 'track_number', 'markets_count']
-            available_features = [f for f in real_features if f in self.tracks_df.columns]
-            logger.info(f"Available real Spotify features: {available_features}")
+        logger.info(f"Loaded {len(self.tracks_df)} tracks")
+        if self.artist_genres_df is not None:
+            logger.info(f"Loaded {len(self.artist_genres_df)} artist genre records")
         
         return True
-    
+
+    def _fetch_missing_artist_genres(self):
+        """Fetch missing artist genres using SpotifyDataFetcher"""
+        try:
+            from utils.data_fetcher import SpotifyDataFetcher
+            
+            logger.info("Attempting to fetch missing artist genres from Spotify...")
+            fetcher = SpotifyDataFetcher()
+            return fetcher.fetch_all_missing_artist_genres()
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch artist genres: {e}")
+            return False
+
+    def merge_artist_genres(self):
+        """Merge artist genres with tracks data"""
+        if self.artist_genres_df is None:
+            logger.warning("No artist genres data available, skipping merge")
+            return
+        
+        if 'artist_id' not in self.tracks_df.columns:
+            logger.warning("No artist_id column in tracks data")
+            return
+        
+        try:
+            # Merge tracks với artist genres
+            before_count = len(self.tracks_df)
+            merged_df = self.tracks_df.merge(
+                self.artist_genres_df[['artist_id', 'genres', 'artist_popularity', 'artist_followers']], 
+                on='artist_id', 
+                how='left'
+            )
+            
+            # Clean artist popularity columns để tránh conflicts
+            merged_df = self._clean_artist_popularity_columns(merged_df)
+            
+            self.tracks_df = merged_df
+            
+            # Log merge results
+            genre_coverage = (self.tracks_df['genres'].notna().sum() / len(self.tracks_df)) * 100
+            logger.info(f"Merged artist genres: {before_count} -> {len(self.tracks_df)} tracks")
+            logger.info(f"Genre coverage: {genre_coverage:.1f}% of tracks have genre data")
+            
+        except Exception as e:
+            logger.error(f"Error merging artist genres: {e}")
+
+    def _clean_artist_popularity_columns(self, df):
+        """Clean conflicting artist popularity columns"""
+        # Nếu có cả artist_popularity từ tracks và từ genres, ưu tiên từ genres
+        if 'artist_popularity_x' in df.columns and 'artist_popularity_y' in df.columns:
+            # Ưu tiên giá trị từ artist_genres (y), fallback về tracks (x)
+            df['artist_popularity'] = df['artist_popularity_y'].fillna(df['artist_popularity_x'])
+            df = df.drop(['artist_popularity_x', 'artist_popularity_y'], axis=1)
+        
+        return df
+
+    def create_genre_features(self):
+        """Create genre features from artist genres data"""
+        if 'genres' not in self.tracks_df.columns:
+            logger.warning("No genres column found, creating fallback genre features")
+            self._create_fallback_genre_features()
+            return
+        
+        try:
+            # Parse genres và tạo binary features
+            all_genres = set()
+            
+            # Thu thập tất cả genres
+            for genre_str in self.tracks_df['genres'].dropna():
+                if isinstance(genre_str, str) and genre_str.strip():
+                    genres = [g.strip().lower() for g in genre_str.split('|') if g.strip()]
+                    all_genres.update(genres)
+            
+            logger.info(f"Found {len(all_genres)} unique genres")
+            
+            # Tạo features cho top genres (có ít nhất 10 tracks)
+            genre_counts = {}
+            for genre in all_genres:
+                count = self.tracks_df['genres'].str.contains(genre, case=False, na=False).sum()
+                if count >= 10:  # Threshold để loại bỏ genres quá ít
+                    genre_counts[genre] = count
+            
+            # Sort và lấy top 25 genres
+            top_genres = sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)[:25]
+            
+            logger.info(f"Creating features for top {len(top_genres)} genres:")
+            for genre, count in top_genres[:10]:  # Log top 10
+                logger.info(f"  {genre}: {count} tracks")
+            
+            # Tạo binary features
+            for genre, count in top_genres:
+                # Clean genre name để tạo column name
+                clean_genre = genre.replace(' ', '_').replace('-', '_').replace('&', 'and')
+                clean_genre = ''.join(c for c in clean_genre if c.isalnum() or c == '_')
+                col_name = f'genre_{clean_genre}'
+                
+                # Tạo binary feature
+                self.tracks_df[col_name] = self.tracks_df['genres'].str.contains(
+                    genre, case=False, na=False
+                ).astype(int)
+            
+            # Tạo thêm compound genre features
+            self._create_compound_genre_features()
+            
+            genre_feature_count = len([col for col in self.tracks_df.columns if col.startswith('genre_')])
+            logger.info(f"Created {genre_feature_count} genre features")
+            
+        except Exception as e:
+            logger.error(f"Error creating genre features: {e}")
+            self._create_fallback_genre_features()
+
+    def _create_fallback_genre_features(self):
+        """Create fallback genre features when real genre data is unavailable"""
+        logger.info("Creating fallback genre features from available data...")
+        
+        # Basic genre mapping từ language và popularity patterns
+        genre_mapping = {
+            'genre_pop': lambda row: 1 if row.get('popularity', 0) > 60 else 0,
+            'genre_kpop': lambda row: row.get('is_korean', 0) if 'is_korean' in self.tracks_df.columns else 0,
+            'genre_jpop': lambda row: row.get('is_japanese', 0) if 'is_japanese' in self.tracks_df.columns else 0,
+            'genre_vpop': lambda row: row.get('is_vietnamese', 0) if 'is_vietnamese' in self.tracks_df.columns else 0,
+            'genre_latin': lambda row: row.get('is_spanish', 0) if 'is_spanish' in self.tracks_df.columns else 0,
+            'genre_mainstream': lambda row: 1 if row.get('popularity', 0) > 70 else 0,
+            'genre_underground': lambda row: 1 if row.get('popularity', 0) < 30 else 0,
+        }
+        
+        # Advanced pattern detection từ tên bài hát và artist
+        pattern_genres = {
+            'genre_electronic': ['electronic', 'edm', 'house', 'techno', 'trance', 'dubstep'],
+            'genre_hip_hop': ['rap', 'hip hop', 'trap', 'drill'],
+            'genre_rock': ['rock', 'metal', 'punk', 'grunge'],
+            'genre_indie': ['indie', 'alternative', 'art'],
+            'genre_rnb': ['r&b', 'soul', 'neo soul'],
+            'genre_country': ['country', 'folk', 'bluegrass'],
+            'genre_jazz': ['jazz', 'blues', 'swing'],
+            'genre_classical': ['classical', 'orchestra', 'symphony'],
+        }
+        
+        # Apply basic mapping
+        for genre_col, func in genre_mapping.items():
+            try:
+                self.tracks_df[genre_col] = self.tracks_df.apply(func, axis=1)
+            except Exception as e:
+                logger.warning(f"Error creating {genre_col}: {e}")
+                self.tracks_df[genre_col] = 0
+        
+        # Apply pattern detection
+        for genre_col, patterns in pattern_genres.items():
+            try:
+                genre_pattern = '|'.join(patterns)
+                
+                # Check trong tên bài hát
+                name_match = self.tracks_df['name'].str.contains(
+                    genre_pattern, case=False, na=False
+                ).astype(int)
+                
+                # Check trong tên artist
+                artist_match = self.tracks_df['artist'].str.contains(
+                    genre_pattern, case=False, na=False
+                ).astype(int)
+                
+                # Combine matches
+                self.tracks_df[genre_col] = (name_match | artist_match).astype(int)
+                
+            except Exception as e:
+                logger.warning(f"Error creating {genre_col}: {e}")
+                self.tracks_df[genre_col] = 0
+        
+        fallback_count = len([col for col in self.tracks_df.columns if col.startswith('genre_')])
+        logger.info(f"Created {fallback_count} fallback genre features")
+
+    def _create_compound_genre_features(self):
+        """Create compound genre features from existing ones"""
+        try:
+            # Asian music categories
+            asian_genres = ['genre_kpop', 'genre_jpop', 'genre_cpop']
+            available_asian = [g for g in asian_genres if g in self.tracks_df.columns]
+            if available_asian:
+                self.tracks_df['genre_asian'] = self.tracks_df[available_asian].max(axis=1)
+            
+            # Electronic music umbrella
+            electronic_patterns = ['house', 'techno', 'trance', 'dubstep', 'electronic']
+            electronic_cols = [f'genre_{pattern}' for pattern in electronic_patterns 
+                             if f'genre_{pattern}' in self.tracks_df.columns]
+            if electronic_cols:
+                self.tracks_df['genre_electronic_umbrella'] = self.tracks_df[electronic_cols].max(axis=1)
+            
+            # Popularity tiers as genre-like features
+            if 'popularity' in self.tracks_df.columns:
+                self.tracks_df['genre_viral'] = (self.tracks_df['popularity'] > 80).astype(int)
+                self.tracks_df['genre_hit'] = ((self.tracks_df['popularity'] > 60) & 
+                                             (self.tracks_df['popularity'] <= 80)).astype(int)
+                self.tracks_df['genre_niche'] = (self.tracks_df['popularity'] < 30).astype(int)
+            
+        except Exception as e:
+            logger.warning(f"Error creating compound genre features: {e}")
+
     def clean_tracks_data(self):
         """Clean tracks data"""
         if self.tracks_df is None or self.tracks_df.empty:
@@ -122,94 +317,6 @@ class DataProcessor:
         
         return True
     
-    def merge_artist_genres(self):
-        """Merge artist genres to tracks data và clean artist_popularity columns"""
-        if self.tracks_df is None or self.tracks_df.empty:
-            logger.error("No tracks data to merge genres with")
-            return False
-        
-        if self.artist_genres_df is None or self.artist_genres_df.empty:
-            logger.warning("No artist genres to merge")
-            return False
-        
-        # Kiểm tra cột artist_id tồn tại
-        if 'artist_id' not in self.tracks_df.columns:
-            logger.warning("No artist_id column in tracks data for genre merging")
-            return False
-        
-        # Lưu số lượng ban đầu
-        initial_count = len(self.tracks_df)
-        
-        # Đổi tên cột genres để tránh xung đột
-        if 'genres' in self.artist_genres_df.columns:
-            self.artist_genres_df = self.artist_genres_df.rename(columns={'genres': 'artist_genres'})
-        
-        # Kết hợp với dữ liệu bài hát
-        genres_columns = ['artist_id', 'artist_genres']
-        for col in ['artist_popularity', 'artist_followers']:
-            if col in self.artist_genres_df.columns:
-                genres_columns.append(col)
-        
-        merged_df = self.tracks_df.merge(
-            self.artist_genres_df[genres_columns], 
-            left_on='artist_id', 
-            right_on='artist_id', 
-            how='left'
-        )
-        
-        # **CLEAN ARTIST_POPULARITY COLUMNS NGAY TẠI ĐÂY**
-        self._clean_artist_popularity_columns(merged_df)
-        
-        # Điền missing values
-        merged_df['artist_genres'] = merged_df['artist_genres'].fillna('')
-        if 'artist_followers' in merged_df.columns:
-            merged_df['artist_followers'] = merged_df['artist_followers'].fillna(0)
-        
-        self.tracks_df = merged_df
-        
-        # Log kết quả
-        merged_count = len(self.tracks_df)
-        logger.info(f"Merged artist genres: {initial_count} tracks -> {merged_count} tracks")
-        
-        return True
-
-    def _clean_artist_popularity_columns(self, df):
-        """Clean artist_popularity columns - chỉ giữ data có nghĩa từ artist_genres.csv"""
-        
-        try:
-            # Step 1: Xác định cột artist_popularity có nghĩa
-            meaningful_col = None
-            if 'artist_popularity_y' in df.columns:
-                meaningful_col = 'artist_popularity_y'
-                logger.info("Found artist_popularity_y - using as primary artist_popularity")
-            elif 'artist_popularity' in df.columns:
-                meaningful_col = 'artist_popularity'
-                logger.info("Found artist_popularity - using as primary")
-            
-            # Step 2: Tạo cột artist_popularity cuối cùng
-            if meaningful_col:
-                df['artist_popularity'] = df[meaningful_col].fillna(50)  # Default value
-                logger.info(f"Set artist_popularity from {meaningful_col}")
-            else:
-                df['artist_popularity'] = 50  # Default for all
-                logger.warning("No meaningful artist_popularity found, using default value 50")
-            
-            # Step 3: Xóa TẤT CẢ các variant columns
-            cols_to_drop = [col for col in df.columns 
-                           if col.startswith('artist_popularity_')]
-            
-            if cols_to_drop:
-                df.drop(columns=cols_to_drop, inplace=True)
-                logger.info(f"Dropped artist_popularity variants: {cols_to_drop}")
-            
-            logger.info("Artist popularity columns cleaned successfully")
-            return df
-        except Exception as e:
-            logger.error(f"Error cleaning artist popularity columns: {e}")
-            # Ensure at least a default column exists
-            df['artist_popularity'] = 50
-            return df
-    
     def extract_release_year(self):
         """Extract release year from release date"""
         if self.tracks_df is None or self.tracks_df.empty:
@@ -253,42 +360,6 @@ class DataProcessor:
         self.tracks_df['decade'] = (self.tracks_df['release_year'] // 10) * 10
         
         logger.info("Extracted release year and decade from release dates")
-        
-        return True
-    
-    def create_genre_features(self):
-        """Create genre features from artist_genres column"""
-        if self.tracks_df is None or self.tracks_df.empty:
-            logger.error("No tracks data to create genre features")
-            return False
-        
-        if 'artist_genres' not in self.tracks_df.columns:
-            logger.warning("No artist_genres column in tracks data")
-            return False
-        
-        # Extract all unique genres
-        all_genres = []
-        for genres in self.tracks_df['artist_genres'].dropna():
-            if genres:
-                genre_list = genres.split('|')
-                all_genres.extend(genre_list)
-        
-        # Count occurrences and get top N genres
-        from collections import Counter
-        genre_counts = Counter(all_genres)
-        top_n = 20  # Top 20 genres
-        top_genres = [genre for genre, count in genre_counts.most_common(top_n)]
-        
-        logger.info(f"Top {top_n} genres: {', '.join(top_genres)}")
-        
-        # Create binary features for top genres
-        for genre in top_genres:
-            col_name = f'genre_{genre.replace(" ", "_").lower()}'
-            self.tracks_df[col_name] = self.tracks_df['artist_genres'].apply(
-                lambda x: 1 if pd.notna(x) and genre in str(x).split('|') else 0
-            )
-        
-        logger.info(f"Created {top_n} genre binary features")
         
         return True
     
@@ -491,62 +562,57 @@ class DataProcessor:
         
         logger.info(f"Normalized {len([f for f in numeric_features.keys() if f in self.tracks_df.columns])} features with improved methods")
         return True
-    
-    def create_user_item_matrix(self, output_path=None):
-        """Skip creating synthetic user-item matrix - focus on content-based only"""
-        logger.info("Skipping synthetic user-item matrix - focusing on real data content-based approach")
-        
-        # Tạo ma trận rỗng minimal để tương thích
-        if output_path:
-            minimal_df = pd.DataFrame({'info': ['No synthetic user data - using content-based approach only']})
-            minimal_df.to_csv(output_path, index=False)
-            logger.info("Created placeholder user-item file for compatibility")
-        
-        return True
-    
+     
     def process_all(self):
-        """Process all data with focus on metadata"""
-        # Tạo thư mục processed nếu chưa tồn tại
-        os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
+        """Process all data steps"""
+        logger.info("Starting complete data processing pipeline...")
         
-        # 1. Load data
-        self.load_data()
-        
-        # 2. Clean tracks data
-        self.clean_tracks_data()
-        
-        # 3. Create synthetic audio features (since real ones aren't available)
-        self.create_synthetic_audio_features()
-        
-        # 4. Merge artist genres
-        self.merge_artist_genres()
-        
-        # 5. Extract release year
-        self.extract_release_year()
-        
-        # 6. Create genre features
-        self.create_genre_features()
-        
-        # 7. Create language features
-        self.create_language_features()
-        
-        # 8. Create additional metadata features
-        self.create_additional_features()
-        
-        # 9. Normalize features
-        self.normalize_features()
-        
-        # 10. Lưu dữ liệu đã xử lý
-        track_features_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
-        self.tracks_df.to_csv(track_features_path, index=False)
-        logger.info(f"Processed tracks data saved to {track_features_path}")
-        
-        # 11. Create user-item matrix
-        user_matrix_path = os.path.join(PROCESSED_DATA_DIR, 'user_item_matrix.csv')
-        self.create_user_item_matrix(output_path=user_matrix_path)
-        
-        logger.info("All data processing complete")
-        return self.tracks_df
+        try:
+            # Step 1: Load data
+            if not self.load_data():
+                logger.error("Failed to load data")
+                return False
+            
+            # Step 2: Clean tracks data
+            self.clean_tracks_data()
+            
+            # Step 3: Merge artist genres (với auto-fetch nếu thiếu)
+            self.merge_artist_genres()
+            
+            # Step 4: Extract release year
+            self.extract_release_year()
+            
+            # Step 5: Create genre features (real hoặc fallback)
+            self.create_genre_features()
+            
+            # Step 6: Create language features
+            self.create_language_features()
+            
+            # Step 7: Create additional features
+            self.create_additional_features()
+            
+            # Step 8: Normalize features
+            self.normalize_features()
+            
+            # Step 9: Save processed data
+            output_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
+            os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
+            self.tracks_df.to_csv(output_path, index=False)
+            
+            feature_count = len(self.tracks_df.columns)
+            genre_feature_count = len([col for col in self.tracks_df.columns if col.startswith('genre_')])
+            
+            logger.info(f"✅ Processing complete!")
+            logger.info(f"   📊 {len(self.tracks_df)} tracks processed")
+            logger.info(f"   🏷️ {feature_count} total features")
+            logger.info(f"   🎨 {genre_feature_count} genre features")
+            logger.info(f"   💾 Saved to: {output_path}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error in processing pipeline: {e}")
+            return False
 
 if __name__ == "__main__":
     processor = DataProcessor()

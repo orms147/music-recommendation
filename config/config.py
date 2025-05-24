@@ -44,7 +44,7 @@ TRACKS_PER_QUERY = 30  # Số lượng bài hát thu thập cho mỗi query
 MAX_RECOMMENDATIONS = 20  # Số lượng khuyến nghị tối đa
 
 # Cài đặt thu thập dữ liệu
-DEFAULT_TRACKS_PER_QUERY = 120  # Số lượng bài hát mặc định cho mỗi truy vấn
+DEFAULT_TRACKS_PER_QUERY = 100  # Số lượng bài hát mặc định cho mỗi truy vấn
 MAX_TRACKS_PER_QUERY = 800     # Giới hạn tối đa số bài hát mỗi truy vấn
 MIN_TRACKS_PER_QUERY = 5       # Giới hạn tối thiểu số bài hát mỗi truy vấn
 TRACKS_QUERY_STEP = 5          # Bước nhảy cho thanh trượt

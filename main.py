@@ -59,20 +59,71 @@ def check_spotify_credentials():
     return bool(SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET)
 
 def setup_initial_dataset(progress=gr.Progress(), tracks_per_query=DEFAULT_TRACKS_PER_QUERY):
-    """Thiết lập bộ dữ liệu ban đầu với progress bar"""
+    """Thiết lập bộ dữ liệu ban đầu với progress bar và auto-fetch artist genres"""
     if not check_spotify_credentials():
         return "⚠️ Thiếu thông tin xác thực Spotify. Vui lòng thiết lập file .env."
+    
     os.makedirs(RAW_DATA_DIR, exist_ok=True)
     progress(0.1, desc="Đang thu thập dữ liệu từ Spotify...")
+    
     try:
+        # Kiểm tra xem đã có đủ data chưa
+        tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks.csv')
+        processed_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
+        
+        if os.path.exists(processed_path):
+            existing_df = pd.read_csv(processed_path)
+            if len(existing_df) >= 10000:  # Đã có đủ data
+                progress(0.3, desc="Đã có data, kiểm tra artist genres...")
+                
+                # Kiểm tra và fetch artist genres nếu thiếu
+                genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
+                if not os.path.exists(genres_path):
+                    progress(0.4, desc="Đang fetch artist genres từ Spotify...")
+                    
+                    from utils.data_fetcher import SpotifyDataFetcher
+                    fetcher = SpotifyDataFetcher()
+                    
+                    if fetcher.fetch_all_missing_artist_genres():
+                        progress(0.7, desc="Đang xử lý lại data với genre features...")
+                        processor = DataProcessor()
+                        processor.process_all()
+                        progress(1.0, desc="Hoàn tất với real genres!")
+                        return f"✅ Đã cập nhật {len(existing_df)} bài hát với real genre features từ Spotify!"
+                    else:
+                        progress(0.7, desc="Không thể fetch genres, dùng fallback...")
+                        processor = DataProcessor()
+                        processor.process_all()
+                        progress(1.0, desc="Hoàn tất với fallback genres!")
+                        return f"✅ Đã xử lý {len(existing_df)} bài hát với fallback genre features."
+                else:
+                    progress(1.0, desc="Data đã đầy đủ!")
+                    return f"✅ Đã có dữ liệu đầy đủ với {len(existing_df)} bài hát và real genres!"
+        
+        # Nếu chưa có data hoặc data chưa đủ
+        progress(0.2, desc="Thu thập tracks từ Spotify...")
         tracks_df = fetch_initial_dataset(tracks_per_query=tracks_per_query)
         if tracks_df is None or tracks_df.empty:
             return "❌ Không thể lấy dữ liệu bài hát từ Spotify."
-        progress(0.6, desc="Đang xử lý dữ liệu...")
+        
+        progress(0.5, desc="Đang fetch artist genres...")
+        
+        # Auto-fetch artist genres
+        from utils.data_fetcher import SpotifyDataFetcher
+        fetcher = SpotifyDataFetcher()
+        genres_success = fetcher.fetch_all_missing_artist_genres()
+        
+        progress(0.8, desc="Đang xử lý dữ liệu...")
         processor = DataProcessor()
         processor.process_all()
+        
         progress(1.0, desc="Hoàn tất!")
-        return f"✅ Đã thiết lập dữ liệu với {len(tracks_df)} bài hát."
+        
+        if genres_success:
+            return f"✅ Đã thiết lập dữ liệu với {len(tracks_df)} bài hát và real genre features từ Spotify!"
+        else:
+            return f"✅ Đã thiết lập dữ liệu với {len(tracks_df)} bài hát (sử dụng fallback genres do Spotify API limit)."
+        
     except Exception as e:
         logger.error(f"Lỗi thiết lập dữ liệu: {e}\n{traceback.format_exc()}")
         return f"❌ Lỗi thiết lập dữ liệu: {e}"
