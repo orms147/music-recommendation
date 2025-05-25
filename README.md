@@ -1,188 +1,145 @@
 # Hệ thống Đề xuất Âm nhạc
 
-Hệ thống đề xuất âm nhạc thông minh sử dụng dữ liệu từ Spotify API, tập trung vào phương pháp dựa trên metadata để đưa ra các gợi ý bài hát phù hợp với sở thích người dùng.
+Hệ thống đề xuất âm nhạc sử dụng dữ liệu thực từ Spotify API với hai mô hình content-based filtering tiên tiến.
 
 ## Tính năng chính
 
-- Thu thập dữ liệu âm nhạc từ Spotify API
-- Hỗ trợ tập dữ liệu lớn 
-- Xử lý và phân tích metadata của bài hát
-- Khả năng tùy chỉnh số lượng dữ liệu thu thập
-- Đề xuất bài hát dựa trên các đặc trưng metadata
-- Giao diện người dùng trực quan với Gradio
-- Gợi ý âm nhạc tương tự bài hát đang nghe
-- **So sánh hai mô hình đề xuất:** MetadataRecommender (truyền thống) và WeightedContentRecommender (weighted scoring + genre similarity)
-- Tạo danh sách phát (playlist) từ bài hát gợi ý
-- Khám phá bài hát theo thể loại
-- **Thông báo rõ ràng khi không tìm thấy bài hát trong dữ liệu**
-
-## Thiết lập dự án
-
-### Yêu cầu
-
-- Python 3.8+ 
-- Các thư viện cần thiết (được liệt kê trong requirements.txt)
-- Tài khoản nhà phát triển Spotify với Client ID và Client Secret
-
-### Cài đặt
-
-1. Clone repository:
-```bash
-git clone https://github.com/orms147/music-recommendation.git
-cd music-recommendation
-```
-
-2. Cài đặt các thư viện phụ thuộc:
-```bash
-pip install -r requirements.txt
-```
-
-3. Tạo file .env trong thư mục gốc của dự án và thêm thông tin xác thực Spotify:
-```
-SPOTIFY_CLIENT_ID=your_client_id_here
-SPOTIFY_CLIENT_SECRET=your_client_secret_here
-```
-
-## Cơ chế hoạt động
-
-### Thu thập dữ liệu
-
-Hệ thống sử dụng Spotify API để thu thập dữ liệu bài hát với hai phương thức chính:
-
-1. **Thu thập dữ liệu cơ bản**: Lấy dữ liệu từ một số lượng truy vấn hạn chế, phù hợp cho việc phát triển và thử nghiệm.
-   ```bash
-   python main.py
-   ```
-   - Sử dụng giao diện web để thiết lập số lượng bài hát mỗi truy vấn
-
-2. **Thu thập dữ liệu lớn**: Tự động thu thập hàng chục nghìn bài hát thông qua các truy vấn đa dạng.
-   - Hỗ trợ lên tới 400,000 bài hát (có thể lớn hơn)
-   - Tự động xử lý theo lô để tránh vượt quá giới hạn API
-   - Lưu dữ liệu theo định kỳ để tránh mất dữ liệu
-
-### Xử lý dữ liệu
-
-Sau khi thu thập, dữ liệu được xử lý thông qua `DataProcessor` để tạo ra các đặc trưng giá trị:
-
-1. **Làm sạch dữ liệu**: Loại bỏ bài hát trùng lặp và dữ liệu không hợp lệ
-2. **Tạo đặc trưng từ metadata**:
-   - Năm phát hành, thập kỷ, độ phổ biến, độ dài bài hát
-   - Phân tích tên bài hát để phát hiện remix, collab
-   - Phát hiện ngôn ngữ/khu vực (Việt Nam, Hàn Quốc, Nhật Bản, Tây Ban Nha)
-   - Phân loại thể loại dựa trên thông tin nghệ sĩ
-3. **Tạo đặc trưng audio tổng hợp**: Khi không có dữ liệu audio thực, hệ thống tạo ra các đặc trưng tổng hợp
-4. **Chuẩn hóa**: Đảm bảo tất cả các đặc trưng số nằm trong khoảng [0,1]
-
-### Mô hình đề xuất
-
-Hệ thống sử dụng hai phương pháp đề xuất dựa trên nội dung:
-
-1. **MetadataRecommender**: Mô hình truyền thống tính toán độ tương tự giữa các bài hát dựa trên metadata
-   - Sử dụng độ tương tự cosine giữa các vector đặc trưng
-   - Hỗ trợ tìm kiếm bài hát theo tên và nghệ sĩ
-   - Xử lý thông minh với các trường hợp không tìm thấy bài hát chính xác
-   - Tạo danh sách phát từ một bài hát gốc
-   - Phân tích sự chuyển tiếp giữa các bài hát trong danh sách phát
-   - Khám phá bài hát theo thể loại
-
-2. **WeightedContentRecommender**: Mô hình mới kết hợp weighted scoring và genre similarity
-   - Tính điểm tổng hợp dựa trên genre similarity, độ phổ biến, độ nổi tiếng nghệ sĩ, ngôn ngữ, năm phát hành
-   - Có thể điều chỉnh trọng số các yếu tố
-   - Đề xuất bài hát phù hợp hơn với sở thích đa chiều
-
-**Cả hai mô hình đều có thông báo rõ ràng khi không tìm thấy bài hát trong dữ liệu.**
+- Thu thập dữ liệu thực từ Spotify API (chỉ metadata, không synthetic data)
+- Hai mô hình đề xuất:
+  - **EnhancedContentRecommender:** Fuzzy search + multi-factor scoring
+  - **WeightedContentRecommender:** Language-first + mood hierarchy
+- Tối ưu hóa cho âm nhạc đa ngôn ngữ (Việt Nam, Hàn Quốc, Nhật Bản, Tây Ban Nha)
+- Fuzzy search thông minh - tìm bài hát ngay cả khi tên không chính xác
+- Giao diện web với Gradio để so sánh trực tiếp hai mô hình
+- Tự động fetch artist genres với API optimization
 
 ## Cấu trúc dự án
 
 ```
 music-recommendation/
-├── config/
-│   └── config.py                # Cấu hình tập trung cho toàn bộ hệ thống
-├── data/
-│   ├── raw/                     # Dữ liệu thô từ Spotify API
-│   └── processed/               # Dữ liệu đã qua xử lý
-├── models/
-│   ├── base_model.py            # Lớp cơ sở cho các mô hình đề xuất
-│   ├── content_model.py         # Mô hình đề xuất dựa trên nội dung
-│   ├── hybrid_model.py          # Mô hình kết hợp (MetadataRecommender)
-│   └── weighted_content_model.py# Mô hình weighted scoring + genre similarity
-├── utils/
-│   ├── data_fetcher.py          # Thu thập dữ liệu từ Spotify API
-│   └── data_processor.py        # Xử lý và làm giàu dữ liệu
-├── main.py                      # Điểm vào chính và giao diện người dùng
-├── requirements.txt             # Các thư viện cần thiết
-└── .env                         # Biến môi trường (không được đưa lên Git)
+├── config/config.py             # Cấu hình hệ thống
+├── data/                        # Dữ liệu raw và processed
+├── models/                      # Các mô hình đề xuất
+│   ├── base_model.py
+│   ├── content_model.py
+│   ├── enhanced_content_model.py
+│   └── weighted_content_model.py
+├── utils/                       # Utilities
+│   ├── data_fetcher.py
+│   ├── data_processor.py
+│   └── data_checker.py
+├── main.py                      # Entry point
+└── requirements.txt
 ```
 
-## Tùy chỉnh hệ thống
+## Cài đặt
 
-Tất cả các thông số có thể tùy chỉnh đều nằm trong config.py:
+1. Clone repository:
+```bash
+git clone https://github.com/your-username/music-recommendation.git
+cd music-recommendation
+```
 
-- `DEFAULT_TRACKS_PER_QUERY`: Số lượng bài hát mặc định cho mỗi truy vấn (mặc định: 200)
-- `MAX_TRACKS_PER_QUERY`: Giới hạn tối đa số bài hát mỗi truy vấn (mặc định: 1000)
-- `MIN_TRACKS_PER_QUERY`: Giới hạn tối thiểu số bài hát mỗi truy vấn (mặc định: 5)
-- `TRACKS_QUERY_STEP`: Bước nhảy cho thanh trượt (mặc định: 5)
-- `LARGE_DATASET_DEFAULT_SIZE`: Kích thước mặc định cho tập dữ liệu lớn (mặc định: 20,000)
-- `LARGE_DATASET_BATCH_SIZE`: Số lượng truy vấn mỗi lô khi lấy dữ liệu lớn (mặc định: 200)
-- `LARGE_DATASET_SAVE_INTERVAL`: Lưu sau mỗi bao nhiêu bài hát (mặc định: 2,000)
-- `CONTENT_FEATURES`: Danh sách các đặc trưng metadata được sử dụng
+2. Cài đặt dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-## Sử dụng thông qua giao diện
+3. Tạo file `.env`:
+```env
+SPOTIFY_CLIENT_ID=your_client_id_here
+SPOTIFY_CLIENT_SECRET=your_client_secret_here
+```
 
-1. **Khởi động giao diện người dùng**:
-   ```bash
-   python main.py
-   ```
+4. Chạy ứng dụng:
+```bash
+python main.py
+```
 
-2. **Thiết lập dữ liệu**: Sử dụng tab "Thiết lập dữ liệu" để thu thập dữ liệu ban đầu
+## Hai mô hình đề xuất
 
-3. **Huấn luyện mô hình**: Nhấn nút "Huấn luyện mô hình" để xử lý dữ liệu và xây dựng cả hai mô hình
+### EnhancedContentRecommender
+- **Fuzzy search** với SequenceMatcher (75% threshold)
+- **Multi-factor scoring** từ 6 yếu tố
+- **Artist diversity** cao với penalty cho cùng nghệ sĩ
+- **Balanced popularity** weighting
+- Thích hợp cho: general users, music discovery
 
-4. **Gợi ý bài hát**: Nhập tên bài hát và nghệ sĩ để nhận gợi ý từ cả hai mô hình (so sánh trực tiếp)
+### WeightedContentRecommender  
+- **Language-first approach** (70% weight cho cùng ngôn ngữ)
+- **Mood hierarchy** với 4 priority tiers
+- **Cultural similarity** awareness
+- Minimal popularity impact
+- Thích hợp cho: language-specific preferences, Asian music
 
-5. **Tạo danh sách phát**: Sử dụng tab "Tạo danh sách phát" để tạo queue bài hát từ một bài hát gốc
+## Features sử dụng
 
-6. **Khám phá theo thể loại**: Sử dụng tab "Khám phá theo thể loại" để tìm bài hát từ một thể loại cụ thể
+Chỉ sử dụng real Spotify metadata:
 
-**Lưu ý:** Nếu bài hát không có trong dữ liệu, giao diện sẽ thông báo rõ ràng cho người dùng.
+```python
+CONTENT_FEATURES = [
+    # Core Spotify metadata
+    'popularity', 'duration_ms', 'explicit', 'release_year',
+    'artist_popularity', 'total_tracks', 'track_number',
+    
+    # Language detection  
+    'is_vietnamese', 'is_korean', 'is_japanese', 'is_spanish',
+    
+    # Track analysis
+    'has_collab', 'is_remix', 'name_length', 'artist_frequency_norm'
+]
+```
 
-## Lưu ý về giới hạn API
+## Sử dụng
 
-Spotify API có các giới hạn cần lưu ý:
-- Mỗi truy vấn tìm kiếm chỉ trả về tối đa 1,000 kết quả
-- Giới hạn tốc độ: khoảng 30 yêu cầu/giây hoặc 3,600 yêu cầu/giờ
-- Xác thực token hết hạn sau 1 giờ (hệ thống tự động làm mới)
+1. **Kiểm tra dữ liệu**: Đánh giá quality và completeness
+2. **Thiết lập dữ liệu**: Thu thập từ Spotify API (50-800 tracks/query)
+3. **Huấn luyện mô hình**: Train cả hai models
+4. **Đề xuất bài hát**: So sánh trực tiếp kết quả từ hai mô hình
+5. **Tạo playlist**: Generate queue từ seed tracks
 
-Khi thu thập bộ dữ liệu lớn, hệ thống đã cài đặt các cơ chế xử lý lỗi và thử lại để đảm bảo thu thập dữ liệu ổn định.
+## Troubleshooting
 
-## Đóng góp
+**Model not trained:** Chạy "Huấn luyện mô hình" trước khi đề xuất
 
-Dự án hệ thống đề xuất âm nhạc này được phát triển dựa trên kiến thức và tham khảo từ nhiều nguồn khác nhau.
+**Track not found:** Sử dụng fuzzy search hoặc kiểm tra tên bài hát
 
-## Tài liệu tham khảo chính
+**API limits:** Hệ thống tự động handle rate limiting và retry
 
-1. **Tài liệu API Spotify**: 
-   - [Spotify Web API Documentation](https://developer.spotify.com/documentation/web-api/)
-   - [Spotify API Endpoints](https://developer.spotify.com/documentation/web-api/reference/#/)
-   - Hướng dẫn xác thực và giới hạn API
+## Dependencies chính
 
-2. **Nghiên cứu về hệ thống đề xuất**:
-   - "Recommender Systems Handbook" của Francesco Ricci, Lior Rokach, Bracha Shapira
-   - Các bài báo về Content-based Recommendation Systems
-   - Nghiên cứu về ứng dụng của hệ thống đề xuất trong lĩnh vực âm nhạc
+- spotipy: Spotify API wrapper
+- scikit-learn: ML algorithms  
+- gradio: Web interface
+- pandas/numpy: Data processing
 
-3. **Thư viện Python**:
-   - Tài liệu của [Spotipy](https://spotipy.readthedocs.io/) - thư viện Python cho Spotify API
-   - Tài liệu của scikit-learn cho xử lý cosine similarity và các kỹ thuật học máy
-   - Tài liệu của Pandas và NumPy cho xử lý dữ liệu
-   - Tài liệu của [Gradio](https://gradio.app/docs/) để xây dựng giao diện
+## Tài liệu tham khảo
 
-4. **Các bài viết kỹ thuật về phân tích đặc trưng âm nhạc**:
-   - Phương pháp trích xuất đặc trưng từ metadata
-   - Kỹ thuật phân loại thể loại âm nhạc
-   - Phát hiện ngôn ngữ và đặc trưng khu vực trong âm nhạc
+### API Documentation
+- [Spotify Web API Documentation](https://developer.spotify.com/documentation/web-api/)
+- [Spotify API Reference](https://developer.spotify.com/documentation/web-api/reference/)
+- [Spotipy Documentation](https://spotipy.readthedocs.io/)
 
-5. **Các nguồn mở tương tự**:
-   - Các dự án mã nguồn mở trên GitHub về hệ thống đề xuất âm nhạc
-   - Các hướng dẫn về xây dựng hệ thống đề xuất dựa trên nội dung
+### Research Papers & Books
+- Ricci, F., Rokach, L., & Shapira, B. (2015). *Recommender Systems Handbook*. Springer.
+- Aggarwal, C. C. (2016). *Recommender Systems: The Textbook*. Springer.
+- Koren, Y., Bell, R., & Volinsky, C. (2009). Matrix factorization techniques for recommender systems. *Computer*, 42(8), 30-37.
 
+### Technical References
+- [Content-Based Recommendation Systems](https://developers.google.com/machine-learning/recommendation/content-based/basics)
+- [Cosine Similarity in Recommendation Systems](https://en.wikipedia.org/wiki/Cosine_similarity)
+- [Fuzzy String Matching with Python](https://docs.python.org/3/library/difflib.html)
+
+### Libraries Documentation
+- [scikit-learn User Guide](https://scikit-learn.org/stable/user_guide.html)
+- [Gradio Documentation](https://gradio.app/docs/)
+- [Pandas Documentation](https://pandas.pydata.org/docs/)
+- [NumPy Documentation](https://numpy.org/doc/)
+
+### Music Information Retrieval
+- Schedl, M., Gómez, E., & Urbano, J. (2014). Music information retrieval: Recent developments and applications. *Foundations and Trends in Information Retrieval*, 8(2-3), 127-261.
+- Celma, Ò. (2010). *Music Recommendation and Discovery*. Springer.
+
+### Multi-cultural Music Analysis
+- Hu, X., & Lee, J. H. (2012). A cross-cultural study of music mood perception between American and Chinese listeners. *ISMIR*, 19-24.
+- Laplante, A., & Downie, J. S. (2006). Everyday life music information-seeking behaviour of young adults. *ISMIR*, 381-382.
