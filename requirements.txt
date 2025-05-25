@@ -1,14 +1,11 @@
-# Core libraries
+# Core machine learning libraries
 numpy>=1.20.0
 pandas>=1.3.0
 scikit-learn>=1.0.0
+scipy>=1.7.0
 
 # Spotify API
 spotipy>=2.19.0
-
-# Data visualization
-matplotlib>=3.4.0
-seaborn>=0.11.0
 
 # Web interface
 gradio>=3.0.0
@@ -16,18 +13,8 @@ gradio>=3.0.0
 # Environment variables
 python-dotenv>=0.19.0
 
-# Utilities
+# Progress bars and utilities
 tqdm>=4.62.0
-joblib>=1.1.0
 
-# NLP processing (for text analysis)
-nltk>=3.6.0
-
-# Unicode handling for Vietnamese text
-unicodedata2>=14.0.0
-
-# Logging and progress tracking
-colorlog>=6.0.0
-
-# Data formatting for pretty tables
-tabulate>=0.8.9
+# Text processing
+regex>=2022.0.0
