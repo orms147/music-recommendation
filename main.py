@@ -5,7 +5,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 import gradio as gr
 import pandas as pd
-import numpy as np
 
 from config.config import (
     RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR,

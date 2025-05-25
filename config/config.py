@@ -22,11 +22,6 @@ os.makedirs(RAW_DATA_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-# Model weights
-CONTENT_WEIGHT = 1.0
-COLLABORATIVE_WEIGHT = 0.0  # Không sử dụng collaborative filtering
-SEQUENCE_WEIGHT = 0.0  # Không sử dụng sequence/transition model
-
 # Content features - CHỈ SỬ DỤNG REAL METADATA
 CONTENT_FEATURES = [
     # Real Spotify metadata features only
@@ -38,10 +33,6 @@ CONTENT_FEATURES = [
     'name_length', 'artist_frequency_norm'
     # LOẠI BỎ: 'danceability', 'energy', 'valence', 'tempo', etc.
 ]
-
-# System settings
-TRACKS_PER_QUERY = 30  # Số lượng bài hát thu thập cho mỗi query
-MAX_RECOMMENDATIONS = 20  # Số lượng khuyến nghị tối đa
 
 # Cài đặt thu thập dữ liệu
 DEFAULT_TRACKS_PER_QUERY = 100  # Số lượng bài hát mặc định cho mỗi truy vấn

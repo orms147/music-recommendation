@@ -18,7 +18,6 @@ class SpotifyDataFetcher:
     def __init__(self, client_id=None, client_secret=None):
         """Initialize Spotify API client with simplified authentication"""
         self.sp = None
-        self.request_count = 0
         self.last_request_time = 0
 
         # Use provided or environment variables

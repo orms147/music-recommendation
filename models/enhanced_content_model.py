@@ -6,7 +6,6 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from models.base_model import BaseRecommender
 from models.content_model import ContentBasedRecommender
-from config.config import CONTENT_WEIGHT
 
 logger = logging.getLogger(__name__)
 

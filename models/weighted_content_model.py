@@ -5,7 +5,6 @@ from sklearn.preprocessing import MinMaxScaler
 from models.base_model import BaseRecommender
 from config.config import CONTENT_FEATURES
 import pickle
-from datetime import datetime
 
 import logging
 logger = logging.getLogger(__name__)

@@ -3,8 +3,6 @@ import numpy as np
 import os
 import pickle
 import logging
-import traceback
-from datetime import datetime
 from config.config import MODELS_DIR
 
 logger = logging.getLogger(__name__)
