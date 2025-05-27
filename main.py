@@ -1,10 +1,10 @@
 import os
 import logging
 import traceback
+import pandas as pd
+import gradio as gr
 from pathlib import Path
 from dotenv import load_dotenv
-import gradio as gr
-import pandas as pd
 
 from config.config import (
     RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR,
@@ -76,6 +76,18 @@ def setup_initial_dataset(progress=gr.Progress(), tracks_per_query=DEFAULT_TRACK
             progress(0.3, desc=f"Found {len(existing_df)} existing tracks...")
             
             if len(existing_df) >= 1000:  # Already have sufficient data
+                # ✅ THÊM: Check ISRC coverage
+                isrc_coverage = (existing_df.get('isrc', pd.Series()) != '').sum() / len(existing_df)
+                
+                if isrc_coverage < 0.5:  # Low ISRC coverage
+                    progress(0.4, desc="Enhancing data with Spotify API...")
+                    processor = DataProcessor()
+                    processor.load_data()  # Load existing data
+                    processor.enrich_with_spotify_api()  # Enrich with API
+                    processor.extract_cultural_features()  # Re-extract with new ISRC
+                    processor.save_processed_data()
+                    progress(0.7, desc="ISRC data enhanced!")
+                
                 progress(1.0, desc="Dataset ready!")
                 
                 # ✅ Check cultural intelligence features
@@ -236,43 +248,26 @@ def recommend_similar(song_name, artist_name="", n=10):
             found_tracks = tracks_df[mask]
             
             if found_tracks.empty:
-                # ✅ Enhanced fuzzy matching suggestions
-                try:
-                    from difflib import get_close_matches
-                    track_names = tracks_df['name'].tolist()
-                    close_matches = get_close_matches(song_name, track_names, n=3, cutoff=0.6)
-                    
-                    suggestion_text = ""
-                    if close_matches:
-                        suggestion_text = f"\n**🔍 Similar tracks found:** {', '.join(close_matches)}"
-                    
-                    # Show sample tracks with cultural info
-                    sample_tracks = tracks_df[['name', 'artist', 'music_culture']].head(5)
-                    
-                    return f"""❌ Track **"{song_name}"** by **{artist_name}** not found.
-{suggestion_text}
-
-**📚 Sample tracks in database:**
-{sample_tracks.to_markdown(index=False)}
-
-**💡 Tip:** Try using exact track name and artist name."""
-                
-                except Exception:
-                    return f"""❌ Track **"{song_name}"** not found in database.
-                    
-**💡 Please check spelling and try again.**"""
+                # Try partial matching
+                mask = tracks_df['name'].str.lower().str.contains(song_name.lower(), na=False)
+                if artist_name:
+                    mask = mask & tracks_df['artist'].str.lower().str.contains(artist_name.lower(), na=False)
+                found_tracks = tracks_df[mask]
             
             # ✅ Show seed track info with cultural context
-            seed_track = found_tracks.iloc[0]
-            seed_culture = seed_track.get('music_culture', 'other')
-            seed_confidence = seed_track.get('cultural_confidence', 0)
-            
-            seed_info = f"""**🎵 Seed Track:** {seed_track['name']} - {seed_track['artist']}
+            if not found_tracks.empty:
+                seed_track = found_tracks.iloc[0]
+                seed_culture = seed_track.get('music_culture', 'other')
+                seed_confidence = seed_track.get('cultural_confidence', 0)
+                
+                seed_info = f"""**🎵 Seed Track:** {seed_track['name']} - {seed_track['artist']}
 **🌍 Culture:** {seed_culture} | **📊 Popularity:** {seed_track.get('popularity', 'N/A')}
 **📅 Year:** {seed_track.get('release_year', 'N/A')} | **🧠 Cultural Confidence:** {seed_confidence:.3f}
 
 ---
 """
+            else:
+                seed_info = f"**⚠️ Track '{song_name}' not found in database. Showing similar recommendations...**\n\n---\n"
         else:
             seed_info = "**🎵 Generating recommendations...**\n\n---\n"
 
@@ -285,14 +280,13 @@ def recommend_similar(song_name, artist_name="", n=10):
         try:
             enhanced_recs = model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
             if not enhanced_recs.empty:
-                results.append("## 🔍 EnhancedContentRecommender (Smart Search + Cultural Intelligence):")
+                results.append("## 🔍 EnhancedContentRecommender:")
                 
-                # ✅ Display with cultural context
                 display_cols = ['name', 'artist', 'enhanced_score']
                 if 'music_culture' in enhanced_recs.columns:
-                    display_cols.append('music_culture')
+                    display_cols.insert(-1, 'music_culture')
                 if 'popularity' in enhanced_recs.columns:
-                    display_cols.append('popularity')
+                    display_cols.insert(-1, 'popularity')
                 
                 available_cols = [col for col in display_cols if col in enhanced_recs.columns]
                 results.append(enhanced_recs[available_cols].round(3).to_markdown(index=False))
@@ -300,7 +294,7 @@ def recommend_similar(song_name, artist_name="", n=10):
                 # ✅ Cultural analytics
                 if 'music_culture' in enhanced_recs.columns:
                     culture_dist = enhanced_recs['music_culture'].value_counts()
-                    results.append(f"\n**🌍 Cultural diversity:** {dict(culture_dist)}")
+                    results.append(f"**🌍 Cultural diversity:** {dict(culture_dist)}")
                 
                 avg_score = enhanced_recs['enhanced_score'].mean() if 'enhanced_score' in enhanced_recs.columns else 0
                 results.append(f"**📈 Avg enhanced score:** {avg_score:.3f}")
@@ -320,9 +314,9 @@ def recommend_similar(song_name, artist_name="", n=10):
                 
                 display_cols = ['name', 'artist', 'final_score']
                 if 'music_culture' in weighted_recs.columns:
-                    display_cols.append('music_culture')
+                    display_cols.insert(-1, 'music_culture')
                 if 'popularity' in weighted_recs.columns:
-                    display_cols.append('popularity')
+                    display_cols.insert(-1, 'popularity')
                 
                 available_cols = [col for col in display_cols if col in weighted_recs.columns]
                 results.append(weighted_recs[available_cols].round(3).to_markdown(index=False))
@@ -330,7 +324,7 @@ def recommend_similar(song_name, artist_name="", n=10):
                 # ✅ Cultural analytics
                 if 'music_culture' in weighted_recs.columns:
                     culture_dist = weighted_recs['music_culture'].value_counts()
-                    results.append(f"\n**🌍 Cultural diversity:** {dict(culture_dist)}")
+                    results.append(f"**🌍 Cultural diversity:** {dict(culture_dist)}")
                 
                 avg_score = weighted_recs['final_score'].mean() if 'final_score' in weighted_recs.columns else 0
                 results.append(f"**📈 Avg weighted score:** {avg_score:.3f}")
