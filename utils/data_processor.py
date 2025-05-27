@@ -2,800 +2,508 @@ import os
 import logging
 import pandas as pd
 import numpy as np
-import re  # ✅ THÊM IMPORT NÀY
+import re
 from datetime import datetime
-from sklearn.preprocessing import MinMaxScaler, RobustScaler
+from sklearn.preprocessing import MinMaxScaler
 from config.config import RAW_DATA_DIR, PROCESSED_DATA_DIR, CONTENT_FEATURES
 
 logger = logging.getLogger(__name__)
 
 class DataProcessor:
-    """Class to process music data"""
+    """Class to process music data with ISRC-based cultural intelligence"""
     
     def __init__(self):
         """Initialize data processor"""
         self.tracks_df = None
-        self.audio_features_df = None
         self.artist_genres_df = None
-        self.user_item_matrix = None
-    
+
     def load_data(self):
-        """Load raw data from files - focus on real metadata only"""
-        tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks.csv')
-        enriched_path = os.path.join(RAW_DATA_DIR, 'enriched_tracks.csv')
-        
-        if os.path.exists(enriched_path):
-            logger.info(f"Loading enriched tracks from {enriched_path}")
-            self.tracks_df = pd.read_csv(enriched_path)
-        elif os.path.exists(tracks_path):
-            logger.info(f"Loading basic tracks from {tracks_path}")
-            self.tracks_df = pd.read_csv(tracks_path)
-        else:
-            logger.error("No track data files found!")
+        """Load all data files"""
+        try:
+            # Load tracks data
+            tracks_file = os.path.join(RAW_DATA_DIR, "tracks.csv")
+            if os.path.exists(tracks_file):
+                self.tracks_df = pd.read_csv(tracks_file)
+                logger.info(f"Loaded tracks data: {len(self.tracks_df)} tracks")
+                logger.info(f"Columns: {list(self.tracks_df.columns)}")
+            else:
+                logger.error(f"Tracks file not found: {tracks_file}")
+                return False
+
+            # Load artist genres
+            genres_file = os.path.join(RAW_DATA_DIR, "artist_genres.csv")
+            if os.path.exists(genres_file):
+                self.artist_genres_df = pd.read_csv(genres_file)
+                logger.info(f"Loaded artist genres: {len(self.artist_genres_df)} artists")
+            else:
+                logger.warning("Artist genres file not found - will create fallback genres")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error loading data: {e}")
+            return False
+
+    def extract_release_year(self):
+        """Extract release year from release date"""
+        if self.tracks_df is None:
+            logger.error("No tracks data to extract release year")
+            return False
+
+        try:
+            def extract_year(date_str):
+                if pd.isna(date_str) or date_str == '':
+                    return 2020
+                
+                # Extract 4-digit year
+                year_match = re.search(r'(\d{4})', str(date_str))
+                if year_match:
+                    year = int(year_match.group(1))
+                    if 1900 <= year <= 2025:
+                        return year
+                
+                return 2020
+
+            self.tracks_df['release_year'] = self.tracks_df['release_date'].apply(extract_year)
+            
+            # Track age
+            current_year = datetime.now().year
+            self.tracks_df['track_age'] = current_year - self.tracks_df['release_year']
+            
+            logger.info(f"Release year extracted - Range: {self.tracks_df['release_year'].min()}-{self.tracks_df['release_year'].max()}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error extracting release year: {e}")
+            self.tracks_df['release_year'] = 2020
+            self.tracks_df['track_age'] = 4
+            return False
+
+    def create_language_features(self):
+        """✅ ISRC-based cultural intelligence for 2 models"""
+        if self.tracks_df is None or self.tracks_df.empty:
+            logger.error("No tracks data to create language features")
             return False
         
-        artist_genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
-        if os.path.exists(artist_genres_path):
-            logger.info(f"Loading artist genres from {artist_genres_path}")
-            self.artist_genres_df = pd.read_csv(artist_genres_path)
-        else:
-            logger.warning("No artist genres file found - will attempt to fetch from Spotify")
-            if self._fetch_missing_artist_genres():
-                self.artist_genres_df = pd.read_csv(artist_genres_path)
-            else:
-                logger.warning("Failed to fetch artist genres, will use fallback genre features")
-                self.artist_genres_df = None
+        logger.info("Creating ISRC-based cultural intelligence for recommendation models...")
         
-        logger.info(f"Loaded {len(self.tracks_df)} tracks")
-        if self.artist_genres_df is not None:
-            logger.info(f"Loaded {len(self.artist_genres_df)} artist genre records")
+        # 1. ✅ ISRC COUNTRY EXTRACTION (Primary source)
+        if 'isrc' in self.tracks_df.columns:
+            # Extract country code (first 2 chars of ISRC)
+            self.tracks_df['isrc_country'] = self.tracks_df['isrc'].str[:2].fillna('XX')
+            
+            # Enhanced country to culture mapping
+            country_culture_map = {
+                # Western countries
+                'US': 'western', 'GB': 'western', 'CA': 'western', 'AU': 'western', 
+                'DE': 'western', 'FR': 'western', 'NL': 'western', 'SE': 'western',
+                
+                # East Asian countries
+                'KR': 'korean', 'JP': 'japanese', 
+                'CN': 'chinese', 'TW': 'chinese', 'HK': 'chinese', 'SG': 'chinese',
+                
+                # Southeast Asian countries (Vietnamese cultural sphere)
+                'VN': 'vietnamese', 'TH': 'vietnamese', 'PH': 'vietnamese',
+                
+                # Spanish/Latin countries
+                'MX': 'spanish', 'ES': 'spanish', 'BR': 'spanish', 'AR': 'spanish', 
+                'CO': 'spanish', 'CL': 'spanish', 'PE': 'spanish'
+            }
+            
+            self.tracks_df['music_culture'] = self.tracks_df['isrc_country'].map(country_culture_map).fillna('other')
+            
+            # Create binary cultural features for models
+            cultures = ['vietnamese', 'korean', 'japanese', 'chinese', 'western', 'spanish']
+            for culture in cultures:
+                self.tracks_df[f'is_{culture}'] = (self.tracks_df['music_culture'] == culture).astype(int)
+            
+            # Major label detection from ISRC registrant code
+            major_registrants = [
+                'UMG', 'SME', 'WEA', 'SON', 'CAP', 'COL', 'ATL', 'RCA', 
+                'INT', 'WMG', 'EMI', 'DEF', 'REP', 'MAV', 'INS'
+            ]
+            self.tracks_df['isrc_registrant'] = self.tracks_df['isrc'].str[2:5].fillna('IND')
+            self.tracks_df['is_major_label'] = self.tracks_df['isrc_registrant'].isin(major_registrants).astype(int)
+            
+            logger.info(f"ISRC-based culture distribution: {self.tracks_df['music_culture'].value_counts().to_dict()}")
+            
+        else:
+            logger.warning("No ISRC column found, creating fallback features")
+            self.tracks_df['music_culture'] = 'other'
+            self.tracks_df['isrc_country'] = 'XX'
+            for culture in ['vietnamese', 'korean', 'japanese', 'chinese', 'western', 'spanish']:
+                self.tracks_df[f'is_{culture}'] = 0
+            self.tracks_df['is_major_label'] = 0
+        
+        # 2. ✅ MARKET PENETRATION ANALYSIS (Secondary source)
+        if 'available_markets' in self.tracks_df.columns:
+            # Count markets
+            def count_markets(markets_str):
+                if pd.isna(markets_str) or markets_str == '':
+                    return 0
+                return len(markets_str.split('|'))
+            
+            self.tracks_df['markets_count'] = self.tracks_df['available_markets'].apply(count_markets)
+            
+            # Market penetration score (normalized to 0-1)
+            max_possible_markets = 170  # Approximate total countries on Spotify
+            self.tracks_df['market_penetration'] = (self.tracks_df['markets_count'] / max_possible_markets).clip(0, 1)
+            
+            # Release tier classification
+            self.tracks_df['is_global_release'] = (self.tracks_df['markets_count'] > 100).astype(int)
+            self.tracks_df['is_regional_release'] = ((self.tracks_df['markets_count'] > 20) & (self.tracks_df['markets_count'] <= 100)).astype(int)
+            self.tracks_df['is_local_release'] = (self.tracks_df['markets_count'] <= 20).astype(int)
+            
+            logger.info(f"Market stats - Avg: {self.tracks_df['market_penetration'].mean():.3f}, Global releases: {self.tracks_df['is_global_release'].sum()}")
+            
+        else:
+            logger.warning("No available_markets column found")
+            self.tracks_df['markets_count'] = 1
+            self.tracks_df['market_penetration'] = 0.1
+            self.tracks_df['is_global_release'] = 0
+            self.tracks_df['is_regional_release'] = 1
+            self.tracks_df['is_local_release'] = 0
+        
+        # 3. ✅ TEXT-BASED FALLBACK (Tertiary source for missing ISRC)
+        missing_culture = self.tracks_df['music_culture'] == 'other'
+        if missing_culture.sum() > 0:
+            logger.info(f"Applying text analysis fallback to {missing_culture.sum()} tracks")
+            
+            # Vietnamese detection
+            vietnamese_patterns = {
+                'chars': 'àáảãạăắằẳẵặâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ',
+                'words': ['việt nam', 'vietnam', 'vpop', 'sài gòn', 'hà nội', 'đàm vĩnh hưng', 'mỹ tâm']
+            }
+            
+            vietnamese_mask = self.tracks_df['name'].str.contains('|'.join(vietnamese_patterns['chars']), na=False)
+            vietnamese_mask |= self.tracks_df['artist'].str.contains('|'.join(vietnamese_patterns['chars']), na=False)
+            for word in vietnamese_patterns['words']:
+                vietnamese_mask |= self.tracks_df['name'].str.contains(word, case=False, na=False)
+                vietnamese_mask |= self.tracks_df['artist'].str.contains(word, case=False, na=False)
+            
+            self.tracks_df.loc[missing_culture & vietnamese_mask, 'is_vietnamese'] = 1
+            self.tracks_df.loc[missing_culture & vietnamese_mask, 'music_culture'] = 'vietnamese'
+            
+            # Korean detection
+            korean_patterns = {
+                'chars': 'ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎㅏㅑㅓㅕㅗㅛㅜㅠㅡㅣ가나다라마바사아자차카타파하',
+                'words': ['kpop', 'k-pop', 'bts', 'blackpink', 'twice', 'itzy', 'aespa', 'stray kids', '방탄소년단', 'korea']
+            }
+            
+            korean_mask = self.tracks_df['name'].str.contains('|'.join(korean_patterns['chars']), na=False)
+            korean_mask |= self.tracks_df['artist'].str.contains('|'.join(korean_patterns['chars']), na=False)
+            for word in korean_patterns['words']:
+                korean_mask |= self.tracks_df['name'].str.contains(word, case=False, na=False)
+                korean_mask |= self.tracks_df['artist'].str.contains(word, case=False, na=False)
+            
+            self.tracks_df.loc[missing_culture & korean_mask, 'is_korean'] = 1
+            self.tracks_df.loc[missing_culture & korean_mask, 'music_culture'] = 'korean'
+            
+            # Japanese detection
+            japanese_patterns = {
+                'chars': 'あいうえおかきくけこアイウエオカキクケコひらがなカタカナ',
+                'words': ['jpop', 'j-pop', 'anime', 'japan', 'tokyo', 'osaka']
+            }
+            
+            japanese_mask = self.tracks_df['name'].str.contains('|'.join(japanese_patterns['chars']), na=False)
+            japanese_mask |= self.tracks_df['artist'].str.contains('|'.join(japanese_patterns['chars']), na=False)
+            for word in japanese_patterns['words']:
+                japanese_mask |= self.tracks_df['name'].str.contains(word, case=False, na=False)
+                japanese_mask |= self.tracks_df['artist'].str.contains(word, case=False, na=False)
+            
+            self.tracks_df.loc[missing_culture & japanese_mask, 'is_japanese'] = 1
+            self.tracks_df.loc[missing_culture & japanese_mask, 'music_culture'] = 'japanese'
+        
+        # 4. ✅ CULTURAL CONFIDENCE SCORE (For model quality assessment)
+        def calculate_cultural_confidence(row):
+            confidence = 0.0
+            
+            # ISRC-based (highest confidence)
+            if row.get('isrc', '').strip() and row.get('isrc_country', 'XX') != 'XX':
+                confidence += 0.7
+            
+            # Market penetration consistency
+            if row.get('markets_count', 0) > 20:
+                confidence += 0.2
+            
+            # Text evidence
+            if row.get('music_culture', 'other') != 'other':
+                confidence += 0.1
+            
+            return min(1.0, confidence)
+        
+        self.tracks_df['cultural_confidence'] = self.tracks_df.apply(calculate_cultural_confidence, axis=1)
+        
+        # Log final cultural intelligence stats
+        culture_dist = self.tracks_df['music_culture'].value_counts()
+        confidence_avg = self.tracks_df['cultural_confidence'].mean()
+        
+        logger.info("✅ Cultural intelligence features created successfully!")
+        logger.info(f"  Culture distribution: {dict(culture_dist)}")
+        logger.info(f"  Average cultural confidence: {confidence_avg:.3f}")
         
         return True
 
-    def _fetch_missing_artist_genres(self):
-        """Fetch missing artist genres using SpotifyDataFetcher"""
-        try:
-            from utils.data_fetcher import SpotifyDataFetcher
-            
-            logger.info("Attempting to fetch missing artist genres from Spotify...")
-            fetcher = SpotifyDataFetcher()
-            return fetcher.fetch_all_missing_artist_genres()
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch artist genres: {e}")
-            return False
-
     def merge_artist_genres(self):
         """Merge artist genres with tracks data"""
+        if self.tracks_df is None:
+            logger.error("No tracks data to merge genres")
+            return False
+
         if self.artist_genres_df is None:
-            logger.warning("No artist genres data available, skipping merge")
-            return
-        
-        if 'artist_id' not in self.tracks_df.columns:
-            logger.warning("No artist_id column in tracks data")
-            return
-        
+            logger.warning("No artist genres data - will create fallback genres")
+            return True
+
         try:
+            # Merge on artist_id
             before_count = len(self.tracks_df)
-            merged_df = self.tracks_df.merge(
-                self.artist_genres_df[['artist_id', 'genres', 'artist_popularity', 'artist_followers']], 
+            self.tracks_df = self.tracks_df.merge(
+                self.artist_genres_df[['artist_id', 'genres', 'artist_followers']], 
                 on='artist_id', 
                 how='left'
             )
             
-            merged_df = self._clean_artist_popularity_columns(merged_df)
-            self.tracks_df = merged_df
+            # Update artist_popularity if we have better data
+            popularity_mask = self.tracks_df['artist_popularity'].isna() | (self.tracks_df['artist_popularity'] == 0)
+            if 'artist_popularity' in self.artist_genres_df.columns:
+                popularity_updates = self.artist_genres_df.set_index('artist_id')['artist_popularity']
+                self.tracks_df.loc[popularity_mask, 'artist_popularity'] = self.tracks_df.loc[popularity_mask, 'artist_id'].map(popularity_updates)
+
+            genres_matched = self.tracks_df['genres'].notna().sum()
+            logger.info(f"Merged artist genres: {genres_matched}/{len(self.tracks_df)} tracks have genre data")
             
-            genre_coverage = (self.tracks_df['genres'].notna().sum() / len(self.tracks_df)) * 100
-            logger.info(f"Merged artist genres: {before_count} -> {len(self.tracks_df)} tracks")
-            logger.info(f"Genre coverage: {genre_coverage:.1f}% of tracks have genre data")
-            
+            return True
+
         except Exception as e:
             logger.error(f"Error merging artist genres: {e}")
-
-    def _clean_artist_popularity_columns(self, df):
-        """Clean conflicting artist popularity columns"""
-        if 'artist_popularity_x' in df.columns and 'artist_popularity_y' in df.columns:
-            df['artist_popularity'] = df['artist_popularity_y'].fillna(df['artist_popularity_x'])
-            df = df.drop(['artist_popularity_x', 'artist_popularity_y'], axis=1)
-        
-        return df
+            return False
 
     def create_genre_features(self):
-        """Create genre features from artist genres data"""
-        if 'genres' not in self.tracks_df.columns:
-            logger.warning("No genres column found, creating fallback genre features")
-            self._create_fallback_genre_features()
-            return
-        
+        """Create genre features for recommendation models"""
+        if self.tracks_df is None:
+            logger.error("No tracks data to create genre features")
+            return False
+
         try:
+            # If no genres column, create fallback
+            if 'genres' not in self.tracks_df.columns or self.tracks_df['genres'].isna().all():
+                logger.warning("No genres data found, creating fallback genre features")
+                self._create_fallback_genre_features()
+                return True
+
+            # Extract all unique genres
             all_genres = set()
+            for genres_str in self.tracks_df['genres'].dropna():
+                if isinstance(genres_str, str) and genres_str.strip():
+                    genres = [g.strip().lower().replace(' ', '_').replace('-', '_') for g in genres_str.split(',')]
+                    all_genres.update([g for g in genres if g and len(g) > 1])
+
+            # Filter meaningful genres
+            common_genres = ['pop', 'rock', 'hip_hop', 'electronic', 'folk', 'country', 'jazz', 'classical', 'r&b', 'soul']
+            cultural_genres = ['kpop', 'jpop', 'cpop', 'vpop', 'latin', 'reggaeton', 'bollywood']
+            mood_genres = ['ballad', 'chill', 'dance', 'party', 'sad', 'happy', 'energetic']
             
-            for genre_str in self.tracks_df['genres'].dropna():
-                if isinstance(genre_str, str) and genre_str.strip():
-                    genres = [g.strip().lower() for g in genre_str.split('|') if g.strip()]
-                    all_genres.update(genres)
+            target_genres = set(common_genres + cultural_genres + mood_genres)
+            target_genres.update([g for g in all_genres if any(tg in g for tg in target_genres)])
             
-            logger.info(f"Found {len(all_genres)} unique genres")
-            
-            genre_counts = {}
-            for genre in all_genres:
-                count = self.tracks_df['genres'].str.contains(genre, case=False, na=False).sum()
-                if count >= 10:
-                    genre_counts[genre] = count
-            
-            top_genres = sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)[:25]
-            
-            logger.info(f"Creating features for top {len(top_genres)} genres:")
-            for genre, count in top_genres[:10]:
-                logger.info(f"  {genre}: {count} tracks")
-            
-            for genre, count in top_genres:
-                clean_genre = genre.replace(' ', '_').replace('-', '_').replace('&', 'and')
-                clean_genre = ''.join(c for c in clean_genre if c.isalnum() or c == '_')
-                col_name = f'genre_{clean_genre}'
+            logger.info(f"Creating binary features for {len(target_genres)} genres")
+
+            # Create binary genre features
+            for genre in target_genres:
+                genre_col = f'genre_{genre}'
+                self.tracks_df[genre_col] = 0
                 
-                self.tracks_df[col_name] = self.tracks_df['genres'].str.contains(
-                    genre, case=False, na=False
-                ).astype(int)
-            
+                # Check if track has this genre
+                genre_mask = self.tracks_df['genres'].str.contains(genre, case=False, na=False)
+                self.tracks_df.loc[genre_mask, genre_col] = 1
+
+            # Create compound genre features for better recommendations
             self._create_compound_genre_features()
+
+            genre_cols = [col for col in self.tracks_df.columns if col.startswith('genre_')]
+            logger.info(f"Created {len(genre_cols)} genre features")
             
-            genre_feature_count = len([col for col in self.tracks_df.columns if col.startswith('genre_')])
-            logger.info(f"Created {genre_feature_count} genre features")
-            
+            return True
+
         except Exception as e:
             logger.error(f"Error creating genre features: {e}")
             self._create_fallback_genre_features()
+            return False
 
     def _create_fallback_genre_features(self):
         """Create fallback genre features when real genre data is unavailable"""
-        logger.info("Creating fallback genre features from available data...")
+        logger.info("Creating fallback genre features for recommendation models")
         
-        genre_mapping = {
-            'genre_pop': lambda row: 1 if row.get('popularity', 0) > 60 else 0,
-            'genre_kpop': lambda row: row.get('is_korean', 0) if 'is_korean' in self.tracks_df.columns else 0,
-            'genre_jpop': lambda row: row.get('is_japanese', 0) if 'is_japanese' in self.tracks_df.columns else 0,
-            'genre_vpop': lambda row: row.get('is_vietnamese', 0) if 'is_vietnamese' in self.tracks_df.columns else 0,
-            'genre_latin': lambda row: row.get('is_spanish', 0) if 'is_spanish' in self.tracks_df.columns else 0,
-            'genre_mainstream': lambda row: 1 if row.get('popularity', 0) > 70 else 0,
-            'genre_underground': lambda row: 1 if row.get('popularity', 0) < 30 else 0,
-        }
+        # Basic genre categories
+        fallback_genres = ['pop', 'rock', 'hip_hop', 'electronic', 'ballad', 'folk', 'dance']
         
-        pattern_genres = {
-            'genre_electronic': ['electronic', 'edm', 'house', 'techno', 'trance', 'dubstep'],
-            'genre_hip_hop': ['rap', 'hip hop', 'trap', 'drill'],
-            'genre_rock': ['rock', 'metal', 'punk', 'grunge'],
-            'genre_indie': ['indie', 'alternative', 'art'],
-            'genre_rnb': ['r&b', 'soul', 'neo soul'],
-            'genre_country': ['country', 'folk', 'bluegrass'],
-            'genre_jazz': ['jazz', 'blues', 'swing'],
-            'genre_classical': ['classical', 'orchestra', 'symphony'],
-        }
+        for genre in fallback_genres:
+            self.tracks_df[f'genre_{genre}'] = 0
         
-        for genre_col, func in genre_mapping.items():
-            try:
-                self.tracks_df[genre_col] = self.tracks_df.apply(func, axis=1)
-            except Exception as e:
-                logger.warning(f"Error creating {genre_col}: {e}")
-                self.tracks_df[genre_col] = 0
+        # Simple pattern-based assignment
+        if 'name' in self.tracks_df.columns:
+            # Pop patterns
+            pop_patterns = ['love', 'heart', 'baby', 'girl', 'boy', 'feel', 'good', 'happy']
+            for pattern in pop_patterns:
+                mask = self.tracks_df['name'].str.contains(pattern, case=False, na=False)
+                self.tracks_df.loc[mask, 'genre_pop'] = 1
+            
+            # Ballad patterns
+            ballad_patterns = ['sad', 'cry', 'tear', 'miss', 'goodbye', 'alone', 'lonely']
+            for pattern in ballad_patterns:
+                mask = self.tracks_df['name'].str.contains(pattern, case=False, na=False)
+                self.tracks_df.loc[mask, 'genre_ballad'] = 1
         
-        for genre_col, patterns in pattern_genres.items():
-            try:
-                genre_pattern = '|'.join(patterns)
-                
-                name_match = self.tracks_df['name'].str.contains(
-                    genre_pattern, case=False, na=False
-                ).astype(int)
-                
-                artist_match = self.tracks_df['artist'].str.contains(
-                    genre_pattern, case=False, na=False
-                ).astype(int)
-                
-                self.tracks_df[genre_col] = (name_match | artist_match).astype(int)
-                
-            except Exception as e:
-                logger.warning(f"Error creating {genre_col}: {e}")
-                self.tracks_df[genre_col] = 0
+        # Default assignment for tracks without genres
+        no_genre_mask = self.tracks_df[[f'genre_{g}' for g in fallback_genres]].sum(axis=1) == 0
+        self.tracks_df.loc[no_genre_mask, 'genre_pop'] = 1
         
-        fallback_count = len([col for col in self.tracks_df.columns if col.startswith('genre_')])
-        logger.info(f"Created {fallback_count} fallback genre features")
+        logger.info("Fallback genre features created")
 
     def _create_compound_genre_features(self):
-        """Create compound genre features from existing ones"""
+        """Create compound genre features for better recommendation"""
         try:
-            asian_genres = ['genre_kpop', 'genre_jpop', 'genre_cpop']
-            available_asian = [g for g in asian_genres if g in self.tracks_df.columns]
-            if available_asian:
-                self.tracks_df['genre_asian'] = self.tracks_df[available_asian].max(axis=1)
-            
-            electronic_patterns = ['house', 'techno', 'trance', 'dubstep', 'electronic']
-            electronic_cols = [f'genre_{pattern}' for pattern in electronic_patterns 
-                             if f'genre_{pattern}' in self.tracks_df.columns]
-            if electronic_cols:
-                self.tracks_df['genre_electronic_umbrella'] = self.tracks_df[electronic_cols].max(axis=1)
-            
-            if 'popularity' in self.tracks_df.columns:
-                self.tracks_df['genre_viral'] = (self.tracks_df['popularity'] > 80).astype(int)
-                self.tracks_df['genre_hit'] = ((self.tracks_df['popularity'] > 60) & 
-                                             (self.tracks_df['popularity'] <= 80)).astype(int)
-                self.tracks_df['genre_niche'] = (self.tracks_df['popularity'] < 30).astype(int)
-            
+            # Mood-based compounds
+            mood_mappings = {
+                'genre_upbeat': ['genre_pop', 'genre_dance', 'genre_electronic', 'genre_party'],
+                'genre_chill': ['genre_ballad', 'genre_folk', 'genre_ambient', 'genre_acoustic'],
+                'genre_energetic': ['genre_rock', 'genre_hip_hop', 'genre_electronic', 'genre_dance'],
+                'genre_emotional': ['genre_ballad', 'genre_soul', 'genre_r&b', 'genre_sad']
+            }
+
+            for compound_genre, component_genres in mood_mappings.items():
+                available_components = [g for g in component_genres if g in self.tracks_df.columns]
+                if available_components:
+                    self.tracks_df[compound_genre] = self.tracks_df[available_components].max(axis=1)
+
+            logger.info(f"Created {len(mood_mappings)} compound genre features")
+
         except Exception as e:
             logger.warning(f"Error creating compound genre features: {e}")
 
     def clean_tracks_data(self):
-        """Clean tracks data"""
+        """Clean and prepare tracks data for models"""
         if self.tracks_df is None or self.tracks_df.empty:
             logger.error("No tracks data to clean")
             return False
         
         initial_count = len(self.tracks_df)
+        logger.info(f"Cleaning tracks data: {initial_count} tracks")
         
-        essential_cols = ['id', 'name', 'artist']
-        self.tracks_df = self.tracks_df.dropna(subset=essential_cols)
+        # Remove duplicates
+        if 'name' in self.tracks_df.columns and 'artist' in self.tracks_df.columns:
+            before_dedup = len(self.tracks_df)
+            self.tracks_df = self.tracks_df.drop_duplicates(subset=['name', 'artist'], keep='first')
+            after_dedup = len(self.tracks_df)
+            logger.info(f"Removed {before_dedup - after_dedup} duplicate tracks")
         
-        self.tracks_df = self.tracks_df.drop_duplicates(subset=['id'])
-        
-        if 'popularity' in self.tracks_df.columns:
-            self.tracks_df['popularity'] = self.tracks_df['popularity'].fillna(0)
-        
-        if 'explicit' in self.tracks_df.columns:
-            self.tracks_df['explicit'] = self.tracks_df['explicit'].fillna(0).astype(int)
-        
-        if 'duration_ms' in self.tracks_df.columns:
-            self.tracks_df['duration_ms'] = self.tracks_df['duration_ms'].fillna(self.tracks_df['duration_ms'].median())
-        
-        if 'artist_popularity' not in self.tracks_df.columns:
-            self.tracks_df['artist_popularity'] = 50
+        # Fill missing essential values
+        self.tracks_df['popularity'] = self.tracks_df['popularity'].fillna(50)
         self.tracks_df['artist_popularity'] = self.tracks_df['artist_popularity'].fillna(50)
+        self.tracks_df['duration_ms'] = self.tracks_df['duration_ms'].fillna(200000)
+        
+        # Ensure required columns exist
+        if 'release_year' not in self.tracks_df.columns:
+            self.tracks_df['release_year'] = 2020
         
         clean_count = len(self.tracks_df)
-        logger.info(f"Cleaned tracks data: {initial_count} -> {clean_count} tracks")
+        logger.info(f"Data cleaned: {initial_count} -> {clean_count} tracks")
         
-        return True
-    
-    def create_synthetic_audio_features(self):
-        """Skip creating synthetic audio features - focus on real metadata only"""
-        if self.tracks_df is None or self.tracks_df.empty:
-            logger.error("No tracks data to check features for")
-            return False
-        
-        logger.info("Skipping synthetic audio features - focusing on real Spotify metadata only")
-        
-        essential_features = ['popularity', 'duration_ms', 'explicit']
-        
-        for feature in essential_features:
-            if feature not in self.tracks_df.columns:
-                logger.warning(f"Missing essential feature: {feature}")
-                if feature == 'popularity':
-                    self.tracks_df[feature] = 0
-                elif feature == 'duration_ms':
-                    self.tracks_df[feature] = 200000
-                elif feature == 'explicit':
-                    self.tracks_df[feature] = 0
-        
-        real_spotify_features = ['popularity', 'duration_ms', 'explicit', 'release_date', 
-                               'album_type', 'total_tracks', 'track_number', 'disc_number']
-        existing_real_features = [f for f in real_spotify_features if f in self.tracks_df.columns]
-        
-        logger.info(f"Using {len(existing_real_features)} real Spotify metadata features: {existing_real_features}")
-        
-        return True
-    
-    def extract_release_year(self):
-        """Extract release year from release date"""
-        if self.tracks_df is None or self.tracks_df.empty:
-            logger.error("No tracks data to extract release year from")
-            return False
-        
-        if 'release_date' not in self.tracks_df.columns:
-            logger.warning("No release_date column in tracks data")
-            return False
-        
-        if 'release_year' in self.tracks_df.columns:
-            logger.info("Release year already exists in data")
-            return True
-        
-        def extract_year(date_str):
-            if not date_str or pd.isna(date_str):
-                return datetime.now().year
-            
-            try:
-                if '-' in str(date_str):
-                    parts = str(date_str).split('-')
-                    if len(parts) > 0 and len(parts[0]) == 4:
-                        return int(parts[0])
-                
-                year = int(date_str)
-                if 1900 <= year <= datetime.now().year:
-                    return year
-            except:
-                pass
-            
-            return datetime.now().year
-        
-        self.tracks_df['release_year'] = self.tracks_df['release_date'].apply(extract_year)
-        self.tracks_df['decade'] = (self.tracks_df['release_year'] // 10) * 10
-        
-        logger.info("Extracted release year and decade from release dates")
-        
-        return True
-    
-    # ✅ THAY THẾ HOÀN TOÀN METHOD NÀY
-    def create_language_features(self):
-        """Enhanced cultural intelligence using ISRC + available_markets + text analysis"""
-        if self.tracks_df is None or self.tracks_df.empty:
-            logger.error("No tracks data to create language features")
-            return False
-        
-        logger.info("Creating ISRC-based cultural intelligence features...")
-        
-        # 1. ISRC-based country detection (PRIORITY #1 - MOST ACCURATE)
-        if 'isrc' in self.tracks_df.columns:
-            self._create_isrc_based_features()
-        else:
-            logger.warning("No ISRC column found - creating default country column")
-            self.tracks_df['isrc_country'] = 'Unknown'
-        
-        # 2. Market-based regional features (SECONDARY)
-        if 'available_markets' in self.tracks_df.columns:
-            self._create_market_based_features()
-        else:
-            logger.warning("No available_markets column - skipping market analysis")
-        
-        # 3. Text-based detection (FALLBACK for missing ISRC)
-        self._create_text_based_language_features()
-        
-        # 4. Create unified cultural features (FINAL)
-        self._create_unified_cultural_features()
-        
-        logger.info("Enhanced cultural intelligence features created")
-        return True
-
-    # ✅ THÊM METHOD MỚI 1
-    def _create_isrc_based_features(self):
-        """Create accurate country/cultural features from ISRC codes"""
-        logger.info("Analyzing ISRC codes for precise country detection...")
-        
-        def extract_isrc_country(isrc):
-            if pd.isna(isrc) or len(str(isrc)) < 2:
-                return 'Unknown'
-            return str(isrc)[:2].upper()
-        
-        def extract_isrc_registrant(isrc):
-            if pd.isna(isrc) or len(str(isrc)) < 5:
-                return 'Unknown'
-            return str(isrc)[2:5].upper()
-        
-        # Extract ISRC components
-        self.tracks_df['isrc_country'] = self.tracks_df['isrc'].apply(extract_isrc_country)
-        self.tracks_df['isrc_registrant'] = self.tracks_df['isrc'].apply(extract_isrc_registrant)
-        
-        # DEFINITIVE COUNTRY MAPPING from ISRC standards
-        isrc_country_mapping = {
-            'US': 'united_states', 'GB': 'united_kingdom', 'KR': 'south_korea', 'JP': 'japan',
-            'VN': 'vietnam', 'CN': 'china', 'DE': 'germany', 'FR': 'france', 'BR': 'brazil',
-            'MX': 'mexico', 'CA': 'canada', 'AU': 'australia', 'SE': 'sweden', 'NO': 'norway',
-            'IT': 'italy', 'ES': 'spain', 'NL': 'netherlands', 'AT': 'austria', 'CH': 'switzerland',
-            'TW': 'taiwan', 'HK': 'hong_kong', 'SG': 'singapore', 'MY': 'malaysia', 'TH': 'thailand',
-            'ID': 'indonesia', 'PH': 'philippines', 'IN': 'india', 'RU': 'russia', 'AR': 'argentina'
-        }
-        
-        self.tracks_df['isrc_country_name'] = self.tracks_df['isrc_country'].map(
-            isrc_country_mapping
-        ).fillna('unknown')
-        
-        # Create binary features for major countries
-        major_countries = ['united_states', 'united_kingdom', 'south_korea', 'japan', 
-                          'vietnam', 'china', 'germany', 'france', 'brazil', 'mexico']
-        
-        for country in major_countries:
-            col_name = f'isrc_{country}'
-            self.tracks_df[col_name] = (self.tracks_df['isrc_country_name'] == country).astype(int)
-        
-        # Major label detection from ISRC registrant codes
-        major_label_registrants = {
-            'UMG': 'universal', 'UNI': 'universal', 'MCA': 'universal', 'DEF': 'universal',
-            'CAP': 'universal', 'VIR': 'universal', 'REP': 'universal', 'POL': 'universal',
-            'SME': 'sony', 'SON': 'sony', 'COL': 'sony', 'RCA': 'sony', 'ARI': 'sony',
-            'EPC': 'sony', 'REL': 'sony', 'LEG': 'sony',
-            'WEA': 'warner', 'WMG': 'warner', 'ATL': 'warner', 'ELE': 'warner', 
-            'NON': 'warner', 'WBR': 'warner', 'ASY': 'warner',
-            'BMG': 'bmg', 'EMI': 'emi', 'IND': 'independent'
-        }
-        
-        self.tracks_df['record_label_type'] = self.tracks_df['isrc_registrant'].map(
-            major_label_registrants
-        ).fillna('independent')
-        
-        self.tracks_df['is_major_label'] = (
-            self.tracks_df['record_label_type'].isin(['universal', 'sony', 'warner'])
-        ).astype(int)
-        
-        # Log results
-        country_counts = self.tracks_df['isrc_country_name'].value_counts()
-        logger.info(f"ISRC country distribution: {dict(country_counts.head(10))}")
-        
-        label_counts = self.tracks_df['record_label_type'].value_counts()
-        logger.info(f"Label distribution: {dict(label_counts)}")
-
-    # ✅ THÊM METHOD MỚI 2
-    def _create_market_based_features(self):
-        """Create regional features based on available_markets"""
-        
-        def parse_markets(markets_str):
-            if pd.isna(markets_str) or not markets_str:
-                return []
-            return [market.strip() for market in str(markets_str).split('|') if market.strip()]
-        
-        self.tracks_df['markets_list'] = self.tracks_df['available_markets'].apply(parse_markets)
-        
-        # Update markets_count if not accurate
-        if 'markets_count' not in self.tracks_df.columns:
-            self.tracks_df['markets_count'] = self.tracks_df['markets_list'].apply(len)
-        
-        # Market penetration score
-        max_markets = self.tracks_df['markets_count'].max()
-        if max_markets > 0:
-            self.tracks_df['market_penetration'] = self.tracks_df['markets_count'] / max_markets
-        else:
-            self.tracks_df['market_penetration'] = 0.0
-        
-        # Regional market presence for music recommendation
-        market_regions = {
-            'market_east_asia': ['KR', 'JP', 'CN', 'TW', 'HK', 'MO'],
-            'market_southeast_asia': ['VN', 'TH', 'MY', 'SG', 'ID', 'PH', 'KH', 'LA', 'MM', 'BN'],
-            'market_north_america': ['US', 'CA', 'MX'],
-            'market_europe': ['GB', 'DE', 'FR', 'IT', 'ES', 'NL', 'SE', 'NO', 'DK', 'FI', 'AT', 'CH', 'BE'],
-            'market_latin_america': ['BR', 'AR', 'CO', 'CL', 'PE', 'VE', 'EC', 'UY', 'PY', 'BO'],
-            'market_oceania': ['AU', 'NZ', 'FJ', 'PG'],
-            'market_south_asia': ['IN', 'PK', 'BD', 'LK', 'NP'],
-            'market_middle_east': ['AE', 'SA', 'IL', 'TR', 'EG', 'LB', 'JO'],
-            'market_africa': ['ZA', 'NG', 'KE', 'GH', 'MA', 'TN'],
-        }
-        
-        for region_name, countries in market_regions.items():
-            self.tracks_df[region_name] = self.tracks_df['markets_list'].apply(
-                lambda markets: 1 if any(country in markets for country in countries) else 0
-            )
-        
-        # Global release indicator
-        self.tracks_df['is_global_release'] = (self.tracks_df['markets_count'] > 100).astype(int)
-        
-        # Cultural diversity score
-        region_cols = list(market_regions.keys())
-        self.tracks_df['cultural_diversity_score'] = self.tracks_df[region_cols].sum(axis=1) / len(region_cols)
-        
-        logger.info("Created market-based regional features for music recommendation")
-
-    # ✅ THÊM METHOD MỚI 3
-    def _create_text_based_language_features(self):
-        """Fallback text-based language detection (only for tracks without ISRC)"""
-        
-        # Only for tracks missing ISRC country info
-        missing_isrc = (self.tracks_df['isrc_country_name'] == 'unknown') | (self.tracks_df['isrc_country'].isna())
-        
-        if missing_isrc.sum() == 0:
-            logger.info("All tracks have ISRC data, skipping text analysis")
-            return
-        
-        logger.info(f"Using text analysis for {missing_isrc.sum():,} tracks without ISRC")
-        
-        # Refined language patterns for major music markets
-        language_patterns = {
-            'vietnamese': {
-                'chars': ['Đ', 'đ', 'Ư', 'ư', 'Ơ', 'ơ', 'Ă', 'ă', 'Â', 'â', 'Ê', 'ê', 'Ô', 'ô'],
-                'words': ['việt', 'tình', 'yêu', 'anh', 'em', 'sài gòn', 'hà nội'],
-            },
-            'korean': {
-                'chars': ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'],
-                'words': ['korea', 'k-pop', 'kpop', 'seoul', '한국', 'bts', 'blackpink'],
-            },
-            'japanese': {
-                'chars': ['あ', 'い', 'う', 'え', 'お', 'か', 'き', 'く', 'け', 'こ', 'ア', 'イ', 'ウ', 'エ', 'オ'],
-                'words': ['japan', 'j-pop', 'jpop', 'tokyo', 'anime'],
-            },
-            'chinese': {
-                'chars': ['中', '国', '华', '文', '歌', '曲', '音', '乐', '爱', '你', '我'],
-                'words': ['china', 'chinese', 'mandarin', 'taiwan', 'hong kong', 'c-pop'],
-            },
-            'spanish': {
-                'chars': ['ñ', 'Ñ', 'á', 'é', 'í', 'ó', 'ú'],
-                'words': ['español', 'latino', 'reggaeton', 'salsa', 'bachata'],
-            }
-        }
-        
-        # Apply text detection only to missing ISRC tracks
-        for lang, patterns in language_patterns.items():
-            all_patterns = patterns.get('chars', []) + patterns.get('words', [])
-            if all_patterns:
-                pattern = '|'.join([re.escape(p) for p in all_patterns])
-                
-                text_detected = (
-                    self.tracks_df['name'].str.contains(pattern, case=False, na=False, regex=True) |
-                    self.tracks_df['artist'].str.contains(pattern, case=False, na=False, regex=True)
-                )
-                
-                # Only apply to tracks missing ISRC
-                text_lang_col = f'text_{lang}'
-                self.tracks_df[text_lang_col] = (missing_isrc & text_detected).astype(int)
-
-    # ✅ THÊM METHOD MỚI 4
-    def _create_unified_cultural_features(self):
-        """Create unified cultural features combining ISRC + market + text analysis"""
-        
-        # Priority: ISRC > Market > Text analysis
-        
-        # 1. Vietnamese tracks
-        vietnamese_isrc = self.tracks_df.get('isrc_vietnam', 0)
-        vietnamese_market = self.tracks_df.get('market_southeast_asia', 0) & (
-            self.tracks_df['markets_list'].apply(lambda x: 'VN' in x if isinstance(x, list) else False).astype(int)
-        )
-        vietnamese_text = self.tracks_df.get('text_vietnamese', 0)
-        self.tracks_df['is_vietnamese'] = (vietnamese_isrc | vietnamese_market | vietnamese_text).astype(int)
-        
-        # 2. Korean tracks (K-pop)
-        korean_isrc = self.tracks_df.get('isrc_south_korea', 0)
-        korean_market = self.tracks_df.get('market_east_asia', 0) & (
-            self.tracks_df['markets_list'].apply(lambda x: 'KR' in x if isinstance(x, list) else False).astype(int)
-        )
-        korean_text = self.tracks_df.get('text_korean', 0)
-        self.tracks_df['is_korean'] = (korean_isrc | korean_market | korean_text).astype(int)
-        
-        # 3. Japanese tracks
-        japanese_isrc = self.tracks_df.get('isrc_japan', 0)
-        japanese_market = self.tracks_df.get('market_east_asia', 0) & (
-            self.tracks_df['markets_list'].apply(lambda x: 'JP' in x if isinstance(x, list) else False).astype(int)
-        )
-        japanese_text = self.tracks_df.get('text_japanese', 0)
-        self.tracks_df['is_japanese'] = (japanese_isrc | japanese_market | japanese_text).astype(int)
-        
-        # 4. Chinese tracks
-        chinese_isrc = self.tracks_df.get('isrc_china', 0)
-        chinese_market = self.tracks_df.get('market_east_asia', 0) & (
-            self.tracks_df['markets_list'].apply(lambda x: any(c in x for c in ['CN', 'TW', 'HK']) if isinstance(x, list) else False).astype(int)
-        )
-        chinese_text = self.tracks_df.get('text_chinese', 0)
-        self.tracks_df['is_chinese'] = (chinese_isrc | chinese_market | chinese_text).astype(int)
-        
-        # 5. Spanish tracks
-        spanish_isrc = (
-            self.tracks_df.get('isrc_mexico', 0) |
-            self.tracks_df.get('isrc_brazil', 0) |
-            self.tracks_df['isrc_country_name'].isin(['spain', 'argentina', 'colombia']).astype(int)
-        )
-        spanish_market = self.tracks_df.get('market_latin_america', 0)
-        spanish_text = self.tracks_df.get('text_spanish', 0)
-        self.tracks_df['is_spanish'] = (spanish_isrc | spanish_market | spanish_text).astype(int)
-        
-        # 6. Western tracks
-        western_isrc = (
-            self.tracks_df.get('isrc_united_states', 0) |
-            self.tracks_df.get('isrc_united_kingdom', 0) |
-            self.tracks_df['isrc_country_name'].isin(['canada', 'australia']).astype(int)
-        )
-        western_market = self.tracks_df.get('market_north_america', 0)
-        self.tracks_df['is_western'] = (western_isrc | western_market).astype(int)
-        
-        # Professional release quality score
-        self.tracks_df['professional_release_score'] = (
-            self.tracks_df['is_major_label'] * 0.4 +                    # Major label
-            (~self.tracks_df['isrc'].isna()).astype(float) * 0.3 +      # Has ISRC
-            self.tracks_df.get('market_penetration', 0) * 0.2 +         # Market reach
-            (self.tracks_df.get('markets_count', 0) > 50).astype(float) * 0.1  # Wide release
-        )
-        
-        # Log unified results
-        language_summary = {}
-        for lang in ['vietnamese', 'korean', 'japanese', 'chinese', 'spanish', 'western']:
-            count = self.tracks_df[f'is_{lang}'].sum()
-            if count > 0:
-                language_summary[lang] = count
-        
-        logger.info(f"Unified cultural features: {language_summary}")
-    
-    def create_additional_features(self):
-        """Create meaningful additional features from metadata"""
-        if self.tracks_df is None or self.tracks_df.empty:
-            logger.error("No tracks data to create additional features")
-            return False
-        
-        # 1. Duration features
-        if 'duration_ms' in self.tracks_df.columns:
-            self.tracks_df['duration_min'] = self.tracks_df['duration_ms'] / 60000
-            
-            self.tracks_df['duration_category'] = pd.cut(
-                self.tracks_df['duration_min'],
-                bins=[0, 2.5, 3.5, 4.5, 6, 100],
-                labels=['short', 'normal', 'extended', 'long', 'very_long']
-            )
-            
-            optimal_duration = 3.5
-            self.tracks_df['duration_score'] = np.exp(-0.5 * ((self.tracks_df['duration_min'] - optimal_duration) / 1.5) ** 2)
-        
-        # 2. Popularity features
-        if 'popularity' in self.tracks_df.columns:
-            self.tracks_df['popularity_tier'] = pd.cut(
-                self.tracks_df['popularity'],
-                bins=[0, 30, 50, 70, 85, 100],
-                labels=['niche', 'emerging', 'popular', 'hit', 'viral']
-            )
-            
-            current_year = datetime.now().year
-            if 'release_year' in self.tracks_df.columns:
-                years_since_release = current_year - self.tracks_df['release_year'].fillna(current_year)
-                self.tracks_df['popularity_momentum'] = self.tracks_df['popularity'] / (1 + 0.1 * years_since_release)
-        
-        # 3. Track name features
-        if 'name' in self.tracks_df.columns:
-            collab_pattern = r'(feat\.?|ft\.?|featuring|with|vs\.?|x\s+|\&|\+)'
-            self.tracks_df['has_collab'] = self.tracks_df['name'].str.contains(
-                collab_pattern, case=False, regex=True, na=False
-            ).astype(int)
-            
-            remix_pattern = r'(remix|edit|version|mix|remaster|acoustic|live|demo|instrumental)'
-            self.tracks_df['is_remix'] = self.tracks_df['name'].str.contains(
-                remix_pattern, case=False, regex=True, na=False
-            ).astype(int)
-            
-            self.tracks_df['name_length'] = self.tracks_df['name'].str.len()
-            self.tracks_df['name_words'] = self.tracks_df['name'].str.split().str.len()
-            
-            self.tracks_df['has_special_chars'] = self.tracks_df['name'].str.contains(
-                r'[^\w\s\-\(\)\[\]\.,:;!?\'"&]', regex=True, na=False
-            ).astype(int)
-        
-        # 4. Artist features
-        if 'artist' in self.tracks_df.columns:
-            artist_counts = self.tracks_df['artist'].value_counts()
-            self.tracks_df['artist_frequency'] = self.tracks_df['artist'].map(artist_counts)
-            self.tracks_df['artist_frequency_log'] = np.log1p(self.tracks_df['artist_frequency'])
-            
-            max_freq_log = self.tracks_df['artist_frequency_log'].max()
-            if max_freq_log > 0:
-                self.tracks_df['artist_frequency_norm'] = self.tracks_df['artist_frequency_log'] / max_freq_log
-            else:
-                self.tracks_df['artist_frequency_norm'] = 0
-            
-            self.tracks_df['is_multi_artist'] = self.tracks_df['artist'].str.contains(
-                r'[,&\+]|feat|ft\.?', case=False, regex=True, na=False
-            ).astype(int)
-        
-        # 5. Album features
-        if 'album_type' in self.tracks_df.columns:
-            album_type_mapping = {'album': 1.0, 'single': 0.8, 'compilation': 0.6}
-            self.tracks_df['album_type_score'] = self.tracks_df['album_type'].map(
-                album_type_mapping
-            ).fillna(0.5)
-        
-        if 'total_tracks' in self.tracks_df.columns:
-            self.tracks_df['album_size_category'] = pd.cut(
-                self.tracks_df['total_tracks'].fillna(1),
-                bins=[0, 1, 5, 12, 20, 100],
-                labels=['single', 'ep', 'album', 'long_album', 'compilation']
-            )
-        
-        logger.info("Created improved additional features from metadata")
         return True
 
     def normalize_features(self):
-        """Improved feature normalization focusing on real metadata"""
-        if self.tracks_df is None or self.tracks_df.empty:
+        """Normalize numerical features for model training"""
+        if self.tracks_df is None:
             logger.error("No tracks data to normalize")
             return False
-        
-        # ✅ BỔ SUNG FEATURES MỚI VÀO NORMALIZATION
-        numeric_features = {
-            # Core Spotify features
-            'popularity': {'method': 'minmax', 'fill': 0},
-            'duration_ms': {'method': 'robust', 'fill': 'median'},
-            'artist_popularity': {'method': 'minmax', 'fill': 50},
-            'release_year': {'method': 'minmax', 'fill': 2000},
-            
-            # NEW: ISRC + Market features
-            'market_penetration': {'method': 'minmax', 'fill': 0},
-            'cultural_diversity_score': {'method': 'minmax', 'fill': 0},
-            'professional_release_score': {'method': 'minmax', 'fill': 0},
-            'markets_count': {'method': 'robust', 'fill': 0},
-            
-            # Derived features
-            'duration_min': {'method': 'robust', 'fill': 'median'},
-            'name_length': {'method': 'robust', 'fill': 'median'},
-            'name_words': {'method': 'robust', 'fill': 'median'},
-            'artist_frequency': {'method': 'log_minmax', 'fill': 1},
-            'total_tracks': {'method': 'log_minmax', 'fill': 1},
-            'track_number': {'method': 'minmax', 'fill': 1},
-            'disc_number': {'method': 'minmax', 'fill': 1},
-            
-            # Computed scores
-            'duration_score': {'method': 'minmax', 'fill': 0.5},
-            'popularity_momentum': {'method': 'robust', 'fill': 'median'},
-            'album_type_score': {'method': 'minmax', 'fill': 0.5}
-        }
-        
-        # Apply normalization
-        for feature, config in numeric_features.items():
-            if feature in self.tracks_df.columns:
-                # Handle missing values
-                if config['fill'] == 'median':
-                    fill_value = self.tracks_df[feature].median()
-                else:
-                    fill_value = config['fill']
-                
-                self.tracks_df[feature] = self.tracks_df[feature].fillna(fill_value)
-                
-                # Apply normalization
-                values = self.tracks_df[feature].values.reshape(-1, 1)
-                
-                if config['method'] == 'minmax':
-                    scaler = MinMaxScaler()
-                    self.tracks_df[feature] = scaler.fit_transform(values).flatten()
-                elif config['method'] == 'robust':
-                    scaler = RobustScaler()
-                    self.tracks_df[feature] = scaler.fit_transform(values).flatten()
-                    self.tracks_df[feature] = np.clip(self.tracks_df[feature], 0, 1)
-                elif config['method'] == 'log_minmax':
-                    log_values = np.log1p(values)
-                    scaler = MinMaxScaler()
-                    self.tracks_df[feature] = scaler.fit_transform(log_values).flatten()
-        
-        logger.info(f"Normalized {len([f for f in numeric_features.keys() if f in self.tracks_df.columns])} features with ISRC + market features")
-        return True
-     
-    def process_all(self):
-        """Process all data steps"""
-        logger.info("Starting complete data processing pipeline...")
-        
+
         try:
-            # Step 1: Load data
-            if not self.load_data():
-                logger.error("Failed to load data")
-                return False
+            # Features to normalize for models
+            numerical_features = ['popularity', 'duration_ms', 'artist_popularity', 'track_age', 'markets_count', 'market_penetration']
             
-            # Step 2: Clean tracks data
-            self.clean_tracks_data()
+            scaler = MinMaxScaler()
+            normalized_count = 0
             
-            # Step 3: Merge artist genres
-            self.merge_artist_genres()
-            
-            # Step 4: Extract release year
-            self.extract_release_year()
-            
-            # Step 5: Create genre features
-            self.create_genre_features()
-            
-            # Step 6: ✅ Create ENHANCED language features (ISRC-based)
-            self.create_language_features()
-            
-            # Step 7: Create additional features
-            self.create_additional_features()
-            
-            # Step 8: Normalize features (including new ones)
-            self.normalize_features()
-            
-            # Step 9: Save processed data
-            output_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
+            for feature in numerical_features:
+                if feature in self.tracks_df.columns:
+                    # Fill missing values with median
+                    feature_data = self.tracks_df[feature].fillna(self.tracks_df[feature].median())
+                    
+                    # Normalize to 0-1 range
+                    normalized_values = scaler.fit_transform(feature_data.values.reshape(-1, 1))
+                    self.tracks_df[f'{feature}_norm'] = normalized_values.flatten()
+                    normalized_count += 1
+
+            logger.info(f"Normalized {normalized_count} features for model training")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error normalizing features: {e}")
+            return False
+
+    def save_processed_data(self):
+        """Save processed data for model training"""
+        if self.tracks_df is None:
+            logger.error("No processed data to save")
+            return False
+
+        try:
             os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
-            self.tracks_df.to_csv(output_path, index=False)
             
-            feature_count = len(self.tracks_df.columns)
-            genre_feature_count = len([col for col in self.tracks_df.columns if col.startswith('genre_')])
-            cultural_feature_count = len([col for col in self.tracks_df.columns if col.startswith('is_') or col.startswith('market_') or col.startswith('isrc_')])
+            # Save processed tracks
+            processed_file = os.path.join(PROCESSED_DATA_DIR, "processed_tracks.csv")
+            self.tracks_df.to_csv(processed_file, index=False)
             
-            logger.info(f"✅ Processing complete with ISRC-based cultural intelligence!")
-            logger.info(f"   📊 {len(self.tracks_df)} tracks processed")
-            logger.info(f"   🏷️ {feature_count} total features")
-            logger.info(f"   🎨 {genre_feature_count} genre features")
-            logger.info(f"   🌍 {cultural_feature_count} cultural intelligence features")
-            logger.info(f"   💾 Saved to: {output_path}")
+            # Create feature summary for models
+            feature_summary = {
+                'total_tracks': len(self.tracks_df),
+                'total_features': len(self.tracks_df.columns),
+                'cultural_features': len([col for col in self.tracks_df.columns if col.startswith('is_') or col == 'music_culture']),
+                'genre_features': len([col for col in self.tracks_df.columns if col.startswith('genre_')]),
+                'normalized_features': len([col for col in self.tracks_df.columns if col.endswith('_norm')]),
+                'isrc_coverage': (self.tracks_df['isrc'] != '').sum() / len(self.tracks_df),
+                'cultural_confidence': self.tracks_df['cultural_confidence'].mean()
+            }
+            
+            logger.info(f"✅ Processed data saved to {processed_file}")
+            logger.info(f"📊 Feature summary for models: {feature_summary}")
             
             return True
-            
+
         except Exception as e:
-            logger.error(f"Error in processing pipeline: {e}")
+            logger.error(f"Error saving processed data: {e}")
             return False
+
+    def process_all(self):
+        """Complete data processing pipeline for recommendation models"""
+        logger.info("🚀 Starting complete data processing for recommendation models...")
+        
+        steps = [
+            ("Loading raw data", self.load_data),
+            ("Extracting release year", self.extract_release_year), 
+            ("Creating ISRC-based cultural intelligence", self.create_language_features),
+            ("Merging artist genres", self.merge_artist_genres),
+            ("Creating genre features", self.create_genre_features),
+            ("Cleaning tracks data", self.clean_tracks_data),
+            ("Normalizing features", self.normalize_features),
+            ("Saving processed data", self.save_processed_data)
+        ]
+        
+        for step_name, step_func in steps:
+            logger.info(f"🔄 {step_name}...")
+            if not step_func():
+                logger.error(f"❌ Failed at step: {step_name}")
+                return False
+        
+        logger.info("✅ Data processing pipeline completed successfully!")
+        logger.info("📊 Data is ready for training WeightedContentRecommender and EnhancedContentRecommender!")
+        return True
+
 
 if __name__ == "__main__":
     processor = DataProcessor()
-    processor.process_all()
+    success = processor.process_all()
+    if success:
+        print("✅ Data processing completed successfully!")
+    else:
+        print("❌ Data processing failed!")
