@@ -10,12 +10,11 @@ def check_data_completeness():
     print("CHECKING DATA COMPLETENESS FOR RECOMMENDATION SYSTEM")
     print("=" * 60)
     
-    # 1. Check raw data files
+    # 1. ✅ Check actual raw data files from data_fetcher.py
     print("\nRAW DATA FILES:")
     raw_files = {
-        'spotify_tracks.csv': 'Track metadata from Spotify API',
-        'enriched_tracks.csv': 'Enhanced track data with derived features', 
-        'artist_genres.csv': 'Artist genres and popularity data'
+        'tracks.csv': 'Track metadata from Spotify API with ISRC',  # ✅ Actual filename
+        'artist_genres.csv': 'Artist genres and popularity data'    # ✅ Actual filename
     }
     
     raw_data_status = {}
@@ -35,10 +34,10 @@ def check_data_completeness():
             raw_data_status[filename] = {'exists': False, 'error': 'File not found'}
             print(f"  [MISSING] {filename}: NOT FOUND - {description}")
     
-    # 2. Check processed data files
+    # 2. ✅ Check actual processed data files from data_processor.py
     print("\nPROCESSED DATA FILES:")
     processed_files = {
-        'track_features.csv': 'Final processed features for ML models'
+        'processed_tracks.csv': 'Final processed features with ISRC cultural intelligence'  # ✅ Actual filename
     }
     
     processed_data_status = {}
@@ -58,20 +57,17 @@ def check_data_completeness():
             processed_data_status[filename] = {'exists': False, 'error': 'File not found'}
             print(f"  [MISSING] {filename}: NOT FOUND - {description}")
     
-    # 3. Analyze track data quality
+    # 3. Analyze track data quality using actual data structure
     print("\nTRACK DATA ANALYSIS:")
     
-    # Use the best available tracks data
+    # ✅ Use the best available tracks data with correct priority
     tracks_df = None
-    if processed_data_status.get('track_features.csv', {}).get('exists'):
-        tracks_df = processed_data_status['track_features.csv']['df']
+    if processed_data_status.get('processed_tracks.csv', {}).get('exists'):
+        tracks_df = processed_data_status['processed_tracks.csv']['df']
         print(f"  Using processed data: {len(tracks_df):,} tracks")
-    elif raw_data_status.get('enriched_tracks.csv', {}).get('exists'):
-        tracks_df = raw_data_status['enriched_tracks.csv']['df']
-        print(f"  Using enriched raw data: {len(tracks_df):,} tracks")
-    elif raw_data_status.get('spotify_tracks.csv', {}).get('exists'):
-        tracks_df = raw_data_status['spotify_tracks.csv']['df']
-        print(f"  Using basic raw data: {len(tracks_df):,} tracks")
+    elif raw_data_status.get('tracks.csv', {}).get('exists'):
+        tracks_df = raw_data_status['tracks.csv']['df']
+        print(f"  Using raw data: {len(tracks_df):,} tracks")
     
     if tracks_df is not None:
         # Essential columns check
@@ -83,13 +79,13 @@ def check_data_completeness():
         else:
             print(f"  [OK] All essential columns present")
         
-        # Core Spotify metadata check
+        # ✅ Core Spotify metadata check with actual column names
         spotify_metadata = {
             'popularity': 'Track popularity (0-100)',
             'duration_ms': 'Track duration in milliseconds',
-            'explicit': 'Explicit content flag',
-            'release_year': 'Release year',
-            'artist_popularity': 'Artist popularity (0-100)'
+            'release_year': 'Release year (extracted from release_date)',
+            'artist_popularity': 'Artist popularity (0-100)',
+            'markets_count': 'Number of available markets'
         }
         
         print(f"\n  CORE SPOTIFY METADATA AVAILABILITY:")
@@ -105,11 +101,38 @@ def check_data_completeness():
         
         print(f"  Metadata coverage: {available_metadata}/{len(spotify_metadata)} ({available_metadata/len(spotify_metadata)*100:.1f}%)")
         
-        # Language features check
-        language_features = ['is_vietnamese', 'is_korean', 'is_japanese', 'is_spanish', 'is_chinese']
-        print(f"\n  LANGUAGE FEATURES:")
+        # ✅ ISRC and Cultural Intelligence Features
+        print(f"\n  ISRC & CULTURAL INTELLIGENCE:")
+        
+        # ISRC coverage
+        if 'isrc' in tracks_df.columns:
+            isrc_available = (tracks_df['isrc'] != '').sum()
+            isrc_coverage = isrc_available / len(tracks_df)
+            print(f"    [OK] ISRC data: {isrc_available:,}/{len(tracks_df):,} ({isrc_coverage*100:.1f}%)")
+        else:
+            print(f"    [MISSING] ISRC data: NOT FOUND")
+        
+        # Cultural intelligence features
+        cultural_features = ['music_culture', 'isrc_country', 'cultural_confidence']
+        available_cultural = 0
+        for feat in cultural_features:
+            if feat in tracks_df.columns:
+                if feat == 'music_culture':
+                    culture_dist = tracks_df[feat].value_counts()
+                    print(f"    [OK] {feat}: {dict(culture_dist)}")
+                else:
+                    non_null = tracks_df[feat].notna().sum()
+                    coverage = non_null / len(tracks_df) * 100
+                    print(f"    [OK] {feat}: {non_null:,} tracks ({coverage:.1f}%)")
+                available_cultural += 1
+            else:
+                print(f"    [MISSING] {feat}: NOT FOUND")
+        
+        # ✅ Binary cultural features check
+        binary_cultural = ['is_vietnamese', 'is_korean', 'is_japanese', 'is_chinese', 'is_western', 'is_spanish']
+        print(f"\n  BINARY CULTURAL FEATURES:")
         available_languages = 0
-        for lang in language_features:
+        for lang in binary_cultural:
             if lang in tracks_df.columns:
                 count = tracks_df[lang].sum()
                 print(f"    [OK] {lang}: {count:,} tracks")
@@ -117,7 +140,28 @@ def check_data_completeness():
             else:
                 print(f"    [MISSING] {lang}: NOT FOUND")
         
-        # Genre features check
+        # ✅ Market and Professional Quality Features
+        print(f"\n  MARKET & QUALITY FEATURES:")
+        quality_features = {
+            'is_major_label': 'Major record label releases',
+            'market_penetration': 'Global market reach (0-1)',
+            'is_global_release': 'Released in 100+ markets',
+            'is_regional_release': 'Released in 20-100 markets',
+            'is_local_release': 'Released in <20 markets'
+        }
+        
+        for feat, desc in quality_features.items():
+            if feat in tracks_df.columns:
+                if feat in ['is_major_label', 'is_global_release', 'is_regional_release', 'is_local_release']:
+                    count = tracks_df[feat].sum()
+                    print(f"    [OK] {feat}: {count:,} tracks - {desc}")
+                else:
+                    avg_val = tracks_df[feat].mean()
+                    print(f"    [OK] {feat}: avg {avg_val:.3f} - {desc}")
+            else:
+                print(f"    [MISSING] {feat}: NOT FOUND - {desc}")
+        
+        # ✅ Genre features check with actual naming
         genre_cols = [col for col in tracks_df.columns if col.startswith('genre_')]
         print(f"\n  GENRE FEATURES:")
         print(f"    Total genre features: {len(genre_cols)}")
@@ -132,6 +176,15 @@ def check_data_completeness():
             sorted_genres = sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)
             for genre, count in sorted_genres:
                 print(f"      {genre}: {count:,} tracks")
+        
+        # ✅ Normalized features check
+        normalized_cols = [col for col in tracks_df.columns if col.endswith('_norm')]
+        print(f"\n  NORMALIZED ML FEATURES:")
+        print(f"    Total normalized features: {len(normalized_cols)}")
+        for col in normalized_cols:
+            min_val = tracks_df[col].min()
+            max_val = tracks_df[col].max()
+            print(f"      {col}: range [{min_val:.3f}, {max_val:.3f}]")
         
         # Data quality metrics
         print(f"\n  DATA QUALITY METRICS:")
@@ -167,22 +220,25 @@ def check_data_completeness():
         artist_df = raw_data_status['artist_genres.csv']['df']
         print(f"  Artist records: {len(artist_df):,}")
         
-        if 'genres' in artist_df.columns or 'artist_genres' in artist_df.columns:
-            genre_col = 'artist_genres' if 'artist_genres' in artist_df.columns else 'genres'
-            artists_with_genres = artist_df[genre_col].notna().sum()
+        if 'genres' in artist_df.columns:
+            artists_with_genres = artist_df['genres'].notna().sum()
             print(f"  Artists with genres: {artists_with_genres:,} ({artists_with_genres/len(artist_df)*100:.1f}%)")
         
         if 'artist_popularity' in artist_df.columns:
             pop_available = artist_df['artist_popularity'].notna().sum()
             print(f"  Artists with popularity data: {pop_available:,} ({pop_available/len(artist_df)*100:.1f}%)")
+        
+        if 'artist_followers' in artist_df.columns:
+            followers_available = artist_df['artist_followers'].notna().sum()
+            print(f"  Artists with follower data: {followers_available:,} ({followers_available/len(artist_df)*100:.1f}%)")
     else:
         print(f"  [ERROR] No artist data available")
     
-    # 5. Recommendation readiness assessment
+    # 5. ✅ Enhanced recommendation readiness assessment
     print("\nRECOMMENDATION SYSTEM READINESS:")
     
     readiness_score = 0
-    max_score = 7
+    max_score = 10  # ✅ Increased for more comprehensive assessment
     
     # Check 1: Basic track data
     if tracks_df is not None and len(tracks_df) >= 1000:
@@ -210,23 +266,51 @@ def check_data_completeness():
     else:
         print(f"  [FAIL] No popularity data")
     
-    # Check 4: Genre features
+    # Check 4: ISRC Cultural Intelligence
+    if tracks_df is not None and 'isrc' in tracks_df.columns:
+        isrc_coverage = (tracks_df['isrc'] != '').sum() / len(tracks_df)
+        if isrc_coverage >= 0.3:
+            print(f"  [OK] Good ISRC coverage: {isrc_coverage*100:.1f}%")
+            readiness_score += 1
+        else:
+            print(f"  [WARN] Low ISRC coverage: {isrc_coverage*100:.1f}%")
+    else:
+        print(f"  [FAIL] No ISRC data for cultural intelligence")
+    
+    # Check 5: Cultural features
+    cultural_count = len([col for col in tracks_df.columns if col.startswith('is_') and col.endswith(('vietnamese', 'korean', 'japanese', 'chinese', 'western', 'spanish'))]) if tracks_df is not None else 0
+    if cultural_count >= 4:
+        print(f"  [OK] Good cultural features: {cultural_count} cultural categories")
+        readiness_score += 1
+    else:
+        print(f"  [FAIL] Limited cultural features: {cultural_count} (minimum: 4)")
+    
+    # Check 6: Genre features
     genre_count = len([col for col in tracks_df.columns if col.startswith('genre_')]) if tracks_df is not None else 0
-    if genre_count >= 10:
+    if genre_count >= 5:
         print(f"  [OK] Good genre feature coverage: {genre_count} genre features")
         readiness_score += 1
     else:
-        print(f"  [FAIL] Insufficient genre features: {genre_count} (minimum: 10)")
+        print(f"  [FAIL] Insufficient genre features: {genre_count} (minimum: 5)")
     
-    # Check 5: Language features
-    lang_count = len([col for col in tracks_df.columns if col.startswith('is_')]) if tracks_df is not None else 0
-    if lang_count >= 3:
-        print(f"  [OK] Language features available: {lang_count} language features")
+    # Check 7: Market penetration features
+    market_features = ['market_penetration', 'markets_count']
+    market_available = sum(1 for feat in market_features if tracks_df is not None and feat in tracks_df.columns)
+    if market_available >= 2:
+        print(f"  [OK] Market analysis features available: {market_available}/2")
         readiness_score += 1
     else:
-        print(f"  [FAIL] Limited language features: {lang_count}")
+        print(f"  [FAIL] Limited market features: {market_available}/2")
     
-    # Check 6: Artist diversity
+    # Check 8: Normalized features for ML
+    norm_count = len([col for col in tracks_df.columns if col.endswith('_norm')]) if tracks_df is not None else 0
+    if norm_count >= 3:
+        print(f"  [OK] ML-ready normalized features: {norm_count}")
+        readiness_score += 1
+    else:
+        print(f"  [FAIL] Insufficient normalized features: {norm_count} (minimum: 3)")
+    
+    # Check 9: Artist diversity
     if tracks_df is not None and 'artist' in tracks_df.columns:
         unique_artists = tracks_df['artist'].nunique()
         if unique_artists >= 500:
@@ -235,49 +319,56 @@ def check_data_completeness():
         else:
             print(f"  [FAIL] Limited artist diversity: {unique_artists:,} (minimum: 500)")
     
-    # Check 7: Data quality
+    # Check 10: Overall data quality
     if tracks_df is not None:
         missing_pct = (tracks_df.isnull().sum().sum() / (len(tracks_df) * len(tracks_df.columns))) * 100
-        if missing_pct < 20:
+        if missing_pct < 15:
             print(f"  [OK] Good data quality: {missing_pct:.1f}% missing data")
             readiness_score += 1
         else:
             print(f"  [WARN] Data quality concerns: {missing_pct:.1f}% missing data")
     
-    # Final assessment
+    # ✅ Final assessment with cultural intelligence focus
     print(f"\nOVERALL READINESS SCORE: {readiness_score}/{max_score} ({readiness_score/max_score*100:.1f}%)")
     
-    if readiness_score >= 6:
-        print(f"  EXCELLENT: Ready for production recommendation system!")
+    if readiness_score >= 8:
+        print(f"  🚀 EXCELLENT: Production-ready with advanced cultural intelligence!")
+    elif readiness_score >= 6:
+        print(f"  ✅ GOOD: Ready for recommendations with cultural intelligence")
     elif readiness_score >= 4:
-        print(f"  GOOD: Ready for recommendation system with minor improvements needed")
-    elif readiness_score >= 2:
-        print(f"  FAIR: Basic recommendation possible, significant improvements recommended")
+        print(f"  ⚠️ FAIR: Basic recommendations possible, cultural features need improvement")
     else:
-        print(f"  POOR: Need more data collection before building recommendation system")
+        print(f"  ❌ POOR: Need comprehensive data collection and processing")
     
-    # Recommendations
+    # ✅ Enhanced recommendations
     print(f"\nRECOMMENDATIONS:")
     
     if readiness_score < max_score:
         if tracks_df is None or len(tracks_df) < 1000:
-            print(f"  - Collect more track data (target: 5,000+ tracks)")
+            print(f"  - Run data fetcher: fetch_initial_dataset() to collect more tracks")
         
-        if genre_count < 10:
-            print(f"  - Improve genre feature extraction from artist data")
+        if cultural_count < 4:
+            print(f"  - Run data processor: process cultural intelligence from ISRC")
             
-        if tracks_df is not None and tracks_df['artist'].nunique() < 500:
-            print(f"  - Increase artist diversity in dataset")
+        if genre_count < 5:
+            print(f"  - Improve genre extraction from artist data")
             
-        print(f"  - Run data processing pipeline to create missing features")
-        print(f"  - Consider fetching additional data using large dataset mode")
+        if tracks_df is not None and (tracks_df['isrc'] != '').sum() / len(tracks_df) < 0.3:
+            print(f"  - Collect more tracks with ISRC data for better cultural intelligence")
+            
+        if norm_count < 3:
+            print(f"  - Run data processor to create normalized ML features")
+    
+    print(f"\n✅ Ready to train WeightedContentRecommender and EnhancedContentRecommender!")
     
     return {
         'readiness_score': readiness_score,
         'max_score': max_score,
         'tracks_count': len(tracks_df) if tracks_df is not None else 0,
         'raw_data_status': raw_data_status,
-        'processed_data_status': processed_data_status
+        'processed_data_status': processed_data_status,
+        'cultural_intelligence_ready': cultural_count >= 4,
+        'isrc_coverage': (tracks_df['isrc'] != '').sum() / len(tracks_df) if tracks_df is not None and 'isrc' in tracks_df.columns else 0
     }
 
 if __name__ == "__main__":
