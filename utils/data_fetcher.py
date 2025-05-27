@@ -40,7 +40,7 @@ class SpotifyDataFetcher:
             raise
 
     def _extract_track_data(self, track):
-        """Extract essential data for ISRC-based recommendation"""
+        """Extract enhanced track data from Spotify API"""
         try:
             # Basic track info
             track_id = track['id']
@@ -54,24 +54,29 @@ class SpotifyDataFetcher:
             # Album info
             album = track.get('album', {})
             
-            # ✅ ISRC and market data
-            external_ids = track.get('external_ids', {})
-            available_markets = track.get('available_markets', [])
-            
-            # Extract data
+            # Cải thiện: Thu thập thêm thông tin từ API
             return {
                 'id': track_id,
                 'name': name,
                 'artist': ', '.join(artist_names),
                 'artist_id': artist_ids[0] if artist_ids else None,
                 'album': album.get('name', ''),
+                'album_type': album.get('album_type', ''),
                 'popularity': track.get('popularity', 0),
                 'duration_ms': track.get('duration_ms', 0),
                 'release_date': album.get('release_date', ''),
-                # ✅ CRITICAL: ISRC for cultural intelligence
-                'isrc': external_ids.get('isrc', ''),
-                'available_markets': '|'.join(available_markets),
-                'markets_count': len(available_markets),
+                'release_date_precision': album.get('release_date_precision', ''),
+                # ISRC và thông tin thị trường
+                'isrc': track.get('external_ids', {}).get('isrc', ''),
+                'available_markets': '|'.join(track.get('available_markets', [])),
+                'markets_count': len(track.get('available_markets', [])),
+                # Cải thiện: Thêm các trường mới
+                'is_playable': track.get('is_playable', True),
+                'explicit': track.get('explicit', False),
+                'disc_number': track.get('disc_number', 1),
+                'track_number': track.get('track_number', 1),
+                'preview_url': track.get('preview_url', ''),
+                'has_preview': track.get('preview_url', '') != '',
             }
             
         except Exception as e:
@@ -118,7 +123,7 @@ class SpotifyDataFetcher:
         return all_tracks
 
     def fetch_artist_details(self, artist_ids, batch_size=50):
-        """Fetch artist details including genres and popularity"""
+        """Enhanced artist details fetching with followers"""
         if not artist_ids:
             return {}
         
@@ -133,11 +138,14 @@ class SpotifyDataFetcher:
                 
                 for artist in artists_data:
                     if artist:
+                        # Cải thiện: Thu thập thêm thông tin followers
                         artist_details[artist['id']] = {
                             'name': artist.get('name', ''),
                             'genres': artist.get('genres', []),
                             'popularity': artist.get('popularity', 0),
-                            'followers': artist.get('followers', {}).get('total', 0)
+                            'followers': artist.get('followers', {}).get('total', 0),
+                            'images': artist.get('images', []),
+                            'has_image': len(artist.get('images', [])) > 0
                         }
                 
                 time.sleep(0.1)
@@ -149,11 +157,42 @@ class SpotifyDataFetcher:
 
     def create_diverse_dataset(self, tracks_per_category=100):
         """Create diverse dataset"""
-        search_queries = [
-            'pop music', 'rock music', 'hip hop', 'electronic music',
-            'kpop', 'korean music', 'japanese music', 'vietnamese music',
-            'spanish music', 'latin music', 'top hits', 'trending music'
+        base_queries = [
+            'Billboard Hot 100',
+            'Grammy Award winners',
+            'top usuk songs',
+            'UK Top 40', 'American Top 40',
+            'Brit Awards',
+
+            'J-Pop top chart',
+            'Oricon Chart',
+            'Japanese music awards',
+
+            'Vietnamese music',
+            'top Vietnamese songs',
+            'Vietnamese indie',
+            'Zing Chart',
+            'Làn Sóng Xanh',
+            'Vietnamese rap',
+
+            'US rap', 'UK rap', 'Japanese rap',
+
+            'C-Pop', 'Mandarin pop', 'Chinese top songs',
+
+            'K-Pop', 'MAMA Awards', 'Melon Top 100',
+            'Golden Disc Awards', 'Gaon Chart',
+
+            'top EDM songs', 'EDM festival anthems',
+            'Ultra Music Festival', 'Tomorrowland hits'
         ]
+        
+
+        years = list(range(2010, 2026))  # 2010 ~ 2025
+
+        # Kết hợp từng query với từng năm
+        search_queries = [f"{query} {year}" for query in base_queries for year in years]
+
+
         
         all_tracks = []
         

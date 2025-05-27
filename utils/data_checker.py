@@ -5,6 +5,83 @@ from config.config import RAW_DATA_DIR, PROCESSED_DATA_DIR
 
 logger = logging.getLogger(__name__)
 
+def check_cultural_intelligence(tracks_df):
+    """Check cultural intelligence features in dataset"""
+    print("\nCULTURAL INTELLIGENCE ANALYSIS:")
+    
+    if tracks_df is None:
+        print("  [ERROR] No tracks data available")
+        return False
+    
+    # Check ISRC coverage
+    isrc_available = False
+    if 'isrc' in tracks_df.columns:
+        isrc_count = (tracks_df['isrc'] != '').sum()
+        isrc_coverage = isrc_count / len(tracks_df)
+        isrc_available = isrc_coverage > 0.3
+        print(f"  [{'OK' if isrc_available else 'WARN'}] ISRC coverage: {isrc_count:,}/{len(tracks_df):,} ({isrc_coverage*100:.1f}%)")
+    else:
+        print("  [ERROR] ISRC data not available")
+    
+    # Check music_culture feature
+    culture_available = False
+    if 'music_culture' in tracks_df.columns:
+        culture_dist = tracks_df['music_culture'].value_counts()
+        culture_available = len(culture_dist) >= 3
+        print(f"  [{'OK' if culture_available else 'WARN'}] Music culture distribution: {dict(culture_dist)}")
+        
+        # Check cultural diversity
+        non_other = (tracks_df['music_culture'] != 'other').sum()
+        cultural_coverage = non_other / len(tracks_df)
+        print(f"  [{'OK' if cultural_coverage > 0.5 else 'WARN'}] Cultural coverage: {non_other:,}/{len(tracks_df):,} ({cultural_coverage*100:.1f}%)")
+    else:
+        print("  [ERROR] Music culture data not available")
+    
+    # Check binary cultural features
+    binary_features = [col for col in tracks_df.columns if col.startswith('is_') and col not in ['is_major_label', 'is_global_release', 'is_regional_release', 'is_local_release']]
+    if binary_features:
+        print(f"  [OK] Binary cultural features: {len(binary_features)}")
+        for feat in binary_features[:5]:  # Show first 5
+            count = tracks_df[feat].sum()
+            print(f"    - {feat}: {count:,} tracks ({count/len(tracks_df)*100:.1f}%)")
+    else:
+        print("  [WARN] No binary cultural features found")
+    
+    # Check cultural confidence
+    if 'cultural_confidence' in tracks_df.columns:
+        avg_confidence = tracks_df['cultural_confidence'].mean()
+        high_confidence = (tracks_df['cultural_confidence'] > 0.7).sum()
+        print(f"  [OK] Cultural confidence: avg={avg_confidence:.3f}, high confidence={high_confidence:,} tracks ({high_confidence/len(tracks_df)*100:.1f}%)")
+    else:
+        print("  [WARN] Cultural confidence not available")
+    
+    # Check region data
+    if 'region' in tracks_df.columns:
+        region_dist = tracks_df['region'].value_counts()
+        print(f"  [OK] Region distribution: {dict(region_dist)}")
+    else:
+        print("  [WARN] Region data not available")
+    
+    # Overall cultural intelligence assessment
+    cultural_score = 0
+    max_cultural_score = 5
+    
+    if isrc_available: cultural_score += 1
+    if culture_available: cultural_score += 1
+    if len(binary_features) >= 3: cultural_score += 1
+    if 'cultural_confidence' in tracks_df.columns: cultural_score += 1
+    if 'region' in tracks_df.columns: cultural_score += 1
+    
+    print(f"\n  CULTURAL INTELLIGENCE SCORE: {cultural_score}/{max_cultural_score}")
+    if cultural_score >= 4:
+        print("  [EXCELLENT] Advanced cultural intelligence ready for recommendations")
+    elif cultural_score >= 3:
+        print("  [GOOD] Basic cultural intelligence available")
+    else:
+        print("  [POOR] Limited cultural intelligence, needs improvement")
+    
+    return cultural_score >= 3
+
 def check_data_completeness():
     """Comprehensive data completeness check for recommendation system"""
     print("CHECKING DATA COMPLETENESS FOR RECOMMENDATION SYSTEM")
