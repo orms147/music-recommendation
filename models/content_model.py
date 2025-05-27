@@ -1,319 +1,544 @@
-import pandas as pd
 import numpy as np
-import logging
-import os
-from datetime import datetime
+import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import MinMaxScaler
 from models.base_model import BaseRecommender
-from scipy import sparse
+from config.config import CONTENT_FEATURES
+import pickle
 
+import logging
 logger = logging.getLogger(__name__)
 
-class ContentBasedRecommender(BaseRecommender):
-    """Baseline Content-based recommendation model using metadata features"""
-    
-    def __init__(self):
-        super().__init__(name="ContentBasedRecommender")
-        self.feature_columns = []
-        self.track_indices = {}
-    
-    def train(self, tracks_df=None):
-        """Train the model using available real metadata features"""
-        start_time = datetime.now()
-        
-        if tracks_df is None:
-            logger.error("No tracks data provided for training")
-            return False
-            
+class WeightedContentRecommender(BaseRecommender):
+    """
+    Content-based recommender with ISRC-based cultural intelligence and optimized weighted scoring.
+    """
+    def __init__(self, weights=None):
+        super().__init__(name="WeightedContentRecommender")
+        self.tracks_df = None
+        self.genre_matrix = None
+        self.scalers = {}
+        self.is_trained = False
+        # ✅ UPDATED WEIGHTS: ISRC-based cultural intelligence priority
+        self.weights = weights or {
+            "cultural_similarity": 0.65,    # ISRC + regional + text fallback
+            "genre_similarity": 0.20,       # Mood matching remains important
+            "professional_quality": 0.08,   # NEW: Major label + market penetration
+            "track_popularity": 0.04,       # Reduced 
+            "artist_popularity": 0.02,      # Reduced
+            "duration_similarity": 0.01,    # Minimal
+        }
+
+    def train(self, tracks_df):
+        """Enhanced training with ISRC-based cultural intelligence"""
         self.tracks_df = tracks_df.copy()
-        logger.info(f"Training ContentBasedRecommender with {len(self.tracks_df)} tracks")
         
-        # Prepare feature matrix
-        success = self._prepare_features()
-        if not success:
-            return False
+        # 1. Track popularity - Enhanced transformation
+        if 'popularity' in self.tracks_df.columns:
+            pop_values = self.tracks_df['popularity'].fillna(0)
+            sqrt_pop = np.sqrt(pop_values)
+            self.scalers['track_popularity'] = MinMaxScaler()
+            self.tracks_df['track_popularity_norm'] = self.scalers['track_popularity'].fit_transform(
+                sqrt_pop.values.reshape(-1, 1)
+            ).flatten()
+        else:
+            self.tracks_df['track_popularity_norm'] = 0.5
         
-        # Calculate similarity matrix
-        self._calculate_similarity_matrix()
+        # 2. Artist popularity - Enhanced processing
+        if 'artist_popularity' in self.tracks_df.columns:
+            artist_pop = self.tracks_df['artist_popularity'].fillna(50)
+            smooth_artist_pop = np.power(artist_pop, 0.7)
+            self.scalers['artist_popularity'] = MinMaxScaler()
+            self.tracks_df['artist_popularity_norm'] = self.scalers['artist_popularity'].fit_transform(
+                smooth_artist_pop.values.reshape(-1, 1)
+            ).flatten()
+        else:
+            self.tracks_df['artist_popularity_norm'] = 0.5
+
+        # 3. Duration normalization
+        if 'duration_ms' in self.tracks_df.columns:
+            durations = self.tracks_df['duration_ms'].fillna(200000)
+            duration_min = durations / 60000
+            self.tracks_df['duration_min'] = duration_min
+            
+            from sklearn.preprocessing import RobustScaler
+            self.scalers['duration'] = RobustScaler()
+            duration_scaled = self.scalers['duration'].fit_transform(duration_min.values.reshape(-1, 1))
+            self.tracks_df['duration_norm'] = MinMaxScaler().fit_transform(duration_scaled).flatten()
+        else:
+            self.tracks_df['duration_norm'] = 0.5
+            self.tracks_df['duration_min'] = 3.5
+
+        # ✅ 4. CULTURAL INTELLIGENCE - ISRC-based (PRIORITY #1)
+        self._prepare_cultural_features()
         
-        # Create track indices mapping
-        self._create_track_indices()
-        
-        self.train_time = datetime.now() - start_time
-        logger.info(f"ContentBasedRecommender trained successfully in {self.train_time.total_seconds():.2f} seconds")
-        
+        # ✅ 5. PROFESSIONAL QUALITY - NEW
+        self._prepare_professional_quality_features()
+
+        # 6. Genre matrix
+        genre_cols = [col for col in self.tracks_df.columns if col.startswith('genre_')]
+        if genre_cols:
+            self.genre_matrix = self.tracks_df[genre_cols].values
+            logger.info(f"Using {len(genre_cols)} genre features for similarity")
+        else:
+            self.genre_matrix = np.ones((len(self.tracks_df), 1))
+            logger.warning("No genre features found, using dummy matrix")
+
         self.is_trained = True
-        return True
-    
-    def _prepare_features(self):
-        """Prepare features for similarity calculation"""
-        try:
-            # Define available feature categories
-            base_features = [
-                'popularity', 'explicit', 'release_year', 'duration_ms',
-                'total_tracks', 'track_number', 'disc_number', 'markets_count'
-            ]
+        logger.info(f"WeightedContentRecommender trained with ISRC-based cultural intelligence on {len(self.tracks_df)} tracks")
+
+    # ✅ NEW METHOD 1: CULTURAL INTELLIGENCE
+    def _prepare_cultural_features(self):
+        """Prepare ISRC-based cultural intelligence features"""
+        
+        # Create cultural region mapping from ISRC + markets + text
+        cultural_regions = {
+            'vietnamese': 0,
+            'korean': 1, 
+            'japanese': 2,
+            'chinese': 3,
+            'western': 4,
+            'spanish': 5,
+            'other': 6
+        }
+        
+        # Primary cultural classification (ISRC > Market > Text)
+        def determine_primary_culture(row):
+            # ISRC-based (HIGHEST PRIORITY)
+            if row.get('isrc_vietnam', 0) == 1:
+                return 'vietnamese'
+            elif row.get('isrc_south_korea', 0) == 1:
+                return 'korean'
+            elif row.get('isrc_japan', 0) == 1:
+                return 'japanese'
+            elif row.get('isrc_china', 0) == 1:
+                return 'chinese'
+            elif row.get('isrc_united_states', 0) == 1 or row.get('isrc_united_kingdom', 0) == 1:
+                return 'western'
+            elif row.get('isrc_mexico', 0) == 1 or row.get('isrc_brazil', 0) == 1:
+                return 'spanish'
             
-            derived_features = [
-                'duration_min', 'artist_frequency', 'name_length',
-                'has_collab', 'is_remix', 'is_vietnamese', 'is_korean', 
-                'is_japanese', 'is_spanish'
-            ]
+            # Market-based (SECONDARY)
+            elif row.get('market_southeast_asia', 0) == 1:
+                markets = row.get('markets_list', [])
+                if isinstance(markets, list) and 'VN' in markets:
+                    return 'vietnamese'
+            elif row.get('market_east_asia', 0) == 1:
+                markets = row.get('markets_list', [])
+                if isinstance(markets, list):
+                    if 'KR' in markets:
+                        return 'korean'
+                    elif 'JP' in markets:
+                        return 'japanese'
+                    elif any(c in markets for c in ['CN', 'TW', 'HK']):
+                        return 'chinese'
+            elif row.get('market_north_america', 0) == 1:
+                return 'western'
+            elif row.get('market_latin_america', 0) == 1:
+                return 'spanish'
             
-            # Find genre features
-            genre_features = [col for col in self.tracks_df.columns if col.startswith('genre_')]
+            # Text-based fallback (LOWEST PRIORITY)
+            elif row.get('text_vietnamese', 0) == 1:
+                return 'vietnamese'
+            elif row.get('text_korean', 0) == 1:
+                return 'korean'
+            elif row.get('text_japanese', 0) == 1:
+                return 'japanese'
+            elif row.get('text_chinese', 0) == 1:
+                return 'chinese'
+            elif row.get('text_spanish', 0) == 1:
+                return 'spanish'
             
-            # Combine all potential features
-            all_candidate_features = base_features + derived_features + genre_features
+            return 'other'
+        
+        # Apply cultural classification
+        self.tracks_df['primary_culture'] = self.tracks_df.apply(determine_primary_culture, axis=1)
+        self.tracks_df['culture_code'] = self.tracks_df['primary_culture'].map(cultural_regions).fillna(6)
+        
+        # Secondary cultural features for cross-cultural similarity
+        self.tracks_df['is_asian'] = (
+            self.tracks_df['primary_culture'].isin(['vietnamese', 'korean', 'japanese', 'chinese'])
+        ).astype(int)
+        
+        self.tracks_df['is_east_asian'] = (
+            self.tracks_df['primary_culture'].isin(['korean', 'japanese', 'chinese'])
+        ).astype(int)
+        
+        # Cultural similarity scores (for cross-cultural recommendations)
+        def cultural_openness_score(row):
+            # Global releases more likely to cross cultures
+            market_penetration = row.get('market_penetration', 0)
+            is_global = row.get('is_global_release', 0)
+            cultural_diversity = row.get('cultural_diversity_score', 0)
             
-            # Filter to only existing columns
-            self.feature_columns = [f for f in all_candidate_features if f in self.tracks_df.columns]
+            base_openness = market_penetration * 0.5 + is_global * 0.3 + cultural_diversity * 0.2
+            return min(1.0, base_openness)
+        
+        self.tracks_df['cultural_openness'] = self.tracks_df.apply(cultural_openness_score, axis=1)
+        
+        # Log cultural distribution
+        culture_dist = self.tracks_df['primary_culture'].value_counts()
+        logger.info(f"Cultural distribution: {dict(culture_dist)}")
+
+    # ✅ NEW METHOD 2: PROFESSIONAL QUALITY
+    def _prepare_professional_quality_features(self):
+        """Prepare professional quality indicators"""
+        
+        # Ensure required columns exist
+        for col in ['is_major_label', 'market_penetration', 'professional_release_score']:
+            if col not in self.tracks_df.columns:
+                self.tracks_df[col] = 0.5  # Default medium quality
+        
+        # Enhanced professional quality score
+        def calculate_professional_score(row):
+            # Major label indicator (40%)
+            major_label = row.get('is_major_label', 0) * 0.4
             
-            if len(self.feature_columns) < 3:
-                logger.error(f"Insufficient features for training. Only {len(self.feature_columns)} available")
-                return False
+            # ISRC presence (30%) - professional releases have ISRC
+            has_isrc = (not pd.isna(row.get('isrc', '')) and row.get('isrc', '').strip() != '') * 0.3
             
-            logger.info(f"Using {len(self.feature_columns)} features: {self.feature_columns}")
+            # Market penetration (20%) - wide releases indicate professionalism
+            market_score = row.get('market_penetration', 0) * 0.2
             
-            # Create feature matrix
-            feature_df = self.tracks_df[self.feature_columns].copy()
+            # Release precision (10%) - day precision indicates planned release
+            precision_bonus = 0.1 if row.get('release_date_precision', 'year') == 'day' else 0.05
             
-            # Handle missing values intelligently
-            for col in feature_df.columns:
-                if feature_df[col].dtype in ['int64', 'float64']:
-                    if col in ['popularity', 'artist_popularity']:
-                        feature_df[col] = feature_df[col].fillna(0)
-                    elif col.startswith('genre_') or col.startswith('is_'):
-                        feature_df[col] = feature_df[col].fillna(0)
-                    else:
-                        feature_df[col] = feature_df[col].fillna(feature_df[col].median())
-                else:
-                    feature_df[col] = feature_df[col].fillna(0)
-            
-            # Store feature matrix
-            self.feature_matrix = feature_df.values
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error preparing features: {e}")
-            return False
-    
-    def _calculate_similarity_matrix(self):
-        """Calculate cosine similarity matrix"""
-        try:
-            logger.info("Calculating similarity matrix...")
-            self.similarity_matrix = cosine_similarity(self.feature_matrix)
-            logger.info(f"Similarity matrix calculated: {self.similarity_matrix.shape}")
-        except Exception as e:
-            logger.error(f"Error calculating similarity matrix: {e}")
-            self.similarity_matrix = None
-    
-    def _create_track_indices(self):
-        """Create mapping from track ID to DataFrame index"""
-        if 'id' in self.tracks_df.columns:
-            self.track_indices = {track_id: i for i, track_id in enumerate(self.tracks_df['id'])}
-        else:
-            self.track_indices = {i: i for i in range(len(self.tracks_df))}
+            return min(1.0, major_label + has_isrc + market_score + precision_bonus)
         
-        logger.info(f"Created track indices mapping for {len(self.track_indices)} tracks")
-    
-    def recommend(self, track_name=None, track_id=None, artist=None, n_recommendations=10):
-        """Recommend tracks similar to the input track"""
-        if not self.is_trained:
-            logger.error("Model not trained. Please train the model first.")
-            return pd.DataFrame()
+        self.tracks_df['enhanced_professional_score'] = self.tracks_df.apply(calculate_professional_score, axis=1)
         
-        n_recommendations = self._validate_n_recommendations(n_recommendations)
-        
-        # Find track index
-        track_idx = self._find_track_index(track_id, track_name, artist)
-        
-        # If track not found, return fallback recommendations
-        if track_idx is None:
-            logger.warning(f"Track not found: '{track_name}' by {artist}. Using fallback recommendations.")
-            recommendations = self._create_fallback_recommendations(track_name, n_recommendations)
-            self._log_recommendation_quality(recommendations, "fallback")
-            return recommendations
-        
-        # Get similarity scores
-        sim_scores = list(enumerate(self.similarity_matrix[track_idx]))
-        
-        # Sort by similarity score (desc) then by index (asc) for stability
-        sim_scores = sorted(sim_scores, key=lambda x: (x[1], -x[0]), reverse=True)
-        
-        # Exclude the input track and take top N
-        sim_scores = [s for s in sim_scores if s[0] != track_idx][:n_recommendations]
-        
-        # Get track indices
-        track_indices = [i[0] for i in sim_scores]
-        
-        # Create recommendations DataFrame
-        base_cols = ['name', 'artist']
-        if 'id' in self.tracks_df.columns:
-            base_cols.insert(0, 'id')
-        
-        recommendations = self.tracks_df.iloc[track_indices][base_cols].copy()
-        recommendations['content_score'] = [i[1] for i in sim_scores]
-        
-        # Add additional metadata columns
-        additional_cols = ['popularity', 'release_year', 'artist_popularity']
-        for col in additional_cols:
-            if col in self.tracks_df.columns:
-                recommendations[col] = self.tracks_df.iloc[track_indices][col].values
-        
-        # Log quality metrics
-        seed_track = self.tracks_df.iloc[track_idx]
-        logger.info(f"Found recommendations for: '{seed_track['name']}' by {seed_track['artist']}")
-        self._log_recommendation_quality(recommendations, "content_similarity")
-        
-        return recommendations
-    
-    def recommend_queue(self, seed_tracks, n_total=10):
-        """Generate a queue starting from seed tracks"""
-        if not self.is_trained:
-            logger.error("Model not trained. Please train the model first.")
-            return []
-        
-        # Process seed tracks to get IDs
-        seed_ids = []
-        for track in seed_tracks:
-            if isinstance(track, dict) and 'id' in track:
-                seed_ids.append(track['id'])
-            elif isinstance(track, str):
-                # Try to find by ID or name
-                if track in self.track_indices:
-                    seed_ids.append(track)
-                else:
-                    idx = self._find_track_index(track_name=track)
-                    if idx is not None and 'id' in self.tracks_df.columns:
-                        seed_ids.append(self.tracks_df.iloc[idx]['id'])
-        
-        if not seed_ids:
-            logger.warning("No valid seed tracks found. Returning random tracks.")
-            # Return random track IDs
-            random_indices = np.random.choice(len(self.tracks_df), size=min(n_total, len(self.tracks_df)), replace=False)
-            if 'id' in self.tracks_df.columns:
-                return self.tracks_df.iloc[random_indices]['id'].tolist()
+        # Professional tier classification
+        def professional_tier(score):
+            if score >= 0.8:
+                return 'major_professional'
+            elif score >= 0.6:
+                return 'professional'
+            elif score >= 0.4:
+                return 'semi_professional'
             else:
-                return random_indices.tolist()
+                return 'independent'
         
-        # Calculate how many more tracks we need
-        n_needed = max(0, n_total - len(seed_ids))
+        self.tracks_df['professional_tier'] = self.tracks_df['enhanced_professional_score'].apply(professional_tier)
         
-        if n_needed == 0:
-            return seed_ids
-        
-        # Get recommendations for each seed track
-        all_recommendations = []
-        
-        for seed_id in seed_ids:
-            try:
-                recs = self.recommend(track_id=seed_id, n_recommendations=n_needed)
-                if not recs.empty:
-                    all_recommendations.append(recs)
-            except Exception as e:
-                logger.warning(f"Failed to get recommendations for seed {seed_id}: {e}")
-                continue
-        
-        # Combine and deduplicate recommendations
-        if all_recommendations:
-            combined = pd.concat(all_recommendations, ignore_index=True)
-            combined = combined.sort_values('content_score', ascending=False)
-            
-            # Remove duplicates and seeds
-            if 'id' in combined.columns:
-                combined = combined.drop_duplicates(subset=['id'])
-                combined = combined[~combined['id'].isin(seed_ids)]
-                
-                # Take top recommendations
-                top_recs = combined.head(n_needed)
-                final_ids = seed_ids + top_recs['id'].tolist()
-            else:
-                # Fallback if no ID column
-                combined = combined.drop_duplicates(subset=['name', 'artist'])
-                top_recs = combined.head(n_needed)
-                final_ids = seed_ids + top_recs.index.tolist()
-            
-            return final_ids
-        
-        return seed_ids
-    
-    def explore_by_genre(self, genre, n_recommendations=10):
-        """Explore tracks by genre"""
+        # Log professional distribution
+        prof_dist = self.tracks_df['professional_tier'].value_counts()
+        logger.info(f"Professional quality distribution: {dict(prof_dist)}")
+
+    def recommend(self, track_name=None, artist=None, n_recommendations=10):
+        """ISRC-based cultural intelligence recommendation with professional quality matching"""
         if not self.is_trained:
-            logger.error("Model not trained. Please train the model first.")
-            return pd.DataFrame()
-        
-        n_recommendations = self._validate_n_recommendations(n_recommendations)
-        
-        # Look for genre-specific column
-        genre_col = f'genre_{genre.lower().replace(" ", "_")}'
-        
-        if genre_col in self.tracks_df.columns:
-            # Filter by genre column
-            filtered = self.tracks_df[self.tracks_df[genre_col] > 0]
-            logger.info(f"Found {len(filtered)} tracks with genre column '{genre_col}'")
-        elif 'artist_genres' in self.tracks_df.columns:
-            # Search in artist_genres text
-            filtered = self.tracks_df[self.tracks_df['artist_genres'].str.contains(
-                genre, case=False, na=False, regex=False)]
-            logger.info(f"Found {len(filtered)} tracks with genre in artist_genres")
+            logger.error("Model not trained.")
+            return "Model not trained."
+
+        # Find seed track
+        df = self.tracks_df
+        if track_name is not None:
+            mask = df['name'].str.lower().str.strip() == track_name.lower().strip()
+            if artist:
+                mask = mask & (df['artist'].str.lower().str.strip() == artist.lower().strip())
+            seed_tracks = df[mask]
         else:
-            # Search in track/artist names
-            filtered = self.tracks_df[
-                self.tracks_df['name'].str.contains(genre, case=False, na=False, regex=False) |
-                self.tracks_df['artist'].str.contains(genre, case=False, na=False, regex=False)
-            ]
-            logger.info(f"Found {len(filtered)} tracks with genre in names")
-        
-        if filtered.empty:
-            logger.warning(f"No tracks found for genre: {genre}")
-            return pd.DataFrame()
-        
-        # Sort by popularity if available, otherwise random
-        if 'popularity' in filtered.columns:
-            result = filtered.nlargest(n_recommendations, 'popularity')
+            seed_tracks = df.sample(1)
+
+        if seed_tracks.empty:
+            logger.warning(f"Track not found: '{track_name}' by '{artist}'. Using intelligent fallback.")
+            fallback = self._create_intelligent_fallback(track_name, artist, n_recommendations)
+            return fallback
+
+        seed = seed_tracks.iloc[0]
+        idx = seed.name
+
+        # ✅ 1. CULTURAL SIMILARITY (0.65) - ISRC-based precision
+        cultural_sim = self._calculate_cultural_similarity(seed, df)
+
+        # ✅ 2. GENRE SIMILARITY (0.20) - Enhanced mood matching
+        if self.genre_matrix.shape[1] > 1:
+            seed_genres = self.genre_matrix[idx].reshape(1, -1)
+            genre_sim = cosine_similarity(seed_genres, self.genre_matrix)[0]
+            genre_sim = self._apply_cultural_genre_boost(genre_sim, seed, df)
         else:
-            result = filtered.sample(min(n_recommendations, len(filtered)))
+            genre_sim = np.ones(len(df))
+
+        # ✅ 3. PROFESSIONAL QUALITY (0.08) - NEW matching
+        professional_sim = self._calculate_professional_similarity(seed, df)
+
+        # 4. Traditional features (reduced weights)
+        track_pop = df['track_popularity_norm'].values
+        artist_pop = df['artist_popularity_norm'].values
         
-        # Add content score for consistency
-        result = result.copy()
-        result['content_score'] = 1.0  # High score for exact genre match
+        # Duration similarity
+        seed_duration = seed['duration_norm']
+        duration_diff = np.abs(df['duration_norm'].values - seed_duration)
+        duration_sim = np.exp(-2 * duration_diff)
+
+        # ✅ WEIGHTED COMBINATION with cultural-professional priority
+        final_score = (
+            self.weights["cultural_similarity"] * cultural_sim +
+            self.weights["genre_similarity"] * genre_sim +
+            self.weights["professional_quality"] * professional_sim +
+            self.weights["track_popularity"] * track_pop +
+            self.weights["artist_popularity"] * artist_pop +
+            self.weights["duration_similarity"] * duration_sim
+        )
+
+        # Create enhanced result DataFrame
+        df = df.copy()
+        df['cultural_similarity'] = cultural_sim
+        df['genre_similarity'] = genre_sim
+        df['professional_similarity'] = professional_sim
+        df['final_score'] = final_score
         
-        # Log and return
-        self._log_recommendation_quality(result, f"genre_exploration_{genre}")
+        # Cultural matching analytics
+        seed_culture = seed.get('primary_culture', 'other')
+        df['cultural_match'] = (df['primary_culture'] == seed_culture).astype(int)
+        df['professional_match'] = (df['professional_tier'] == seed.get('professional_tier', 'independent')).astype(int)
         
-        base_cols = ['name', 'artist']
-        if 'id' in result.columns:
-            base_cols.insert(0, 'id')
-        base_cols.append('content_score')
+        # Remove seed track
+        df = df.drop(idx)
+
+        # Sort by final score
+        recommendations = df.sort_values('final_score', ascending=False).head(n_recommendations)
+
+        # Enhanced result with analytics
+        result_cols = ['name', 'artist', 'final_score', 'primary_culture', 'professional_tier']
         
-        additional_cols = ['popularity', 'release_year']
-        for col in additional_cols:
+        # Add available metadata
+        meta_cols = ['popularity', 'release_year', 'cultural_similarity', 'genre_similarity', 'professional_similarity']
+        for col in meta_cols:
+            if col in recommendations.columns:
+                result_cols.append(col)
+
+        available_cols = [col for col in result_cols if col in recommendations.columns]
+        result = recommendations[available_cols].copy()
+        
+        # Round scores for readability
+        score_cols = ['final_score', 'cultural_similarity', 'genre_similarity', 'professional_similarity']
+        for col in score_cols:
             if col in result.columns:
-                base_cols.append(col)
+                result[col] = result[col].round(3)
         
-        return result[base_cols]
-    
-    def __getstate__(self):
-        """Optimize pickling by handling large matrices"""
-        state = self.__dict__.copy()
+        # ✅ ENHANCED LOGGING with cultural intelligence metrics
+        same_culture_count = (result['primary_culture'] == seed_culture).sum()
+        same_professional_count = (result['professional_tier'] == seed.get('professional_tier', 'independent')).sum()
         
-        # Convert similarity matrix to sparse format if beneficial
-        if 'similarity_matrix' in state and state['similarity_matrix'] is not None:
-            if not sparse.issparse(state['similarity_matrix']):
-                density = np.count_nonzero(state['similarity_matrix']) / state['similarity_matrix'].size
-                if density < 0.5:  # Convert to sparse if less than 50% density
-                    state['similarity_matrix'] = sparse.csr_matrix(state['similarity_matrix'])
+        logger.info(f"ISRC-based recommendation for '{seed['name']}' ({seed_culture}):")
+        logger.info(f"  Cultural match: {same_culture_count}/{len(result)} ({same_culture_count/len(result)*100:.1f}%)")
+        logger.info(f"  Professional match: {same_professional_count}/{len(result)} ({same_professional_count/len(result)*100:.1f}%)")
         
-        return state
-    
-    def __setstate__(self, state):
-        """Handle unpickling of sparse matrices"""
-        self.__dict__.update(state)
+        # Cultural diversity analysis
+        if 'primary_culture' in result.columns:
+            culture_dist = result['primary_culture'].value_counts()
+            logger.info(f"  Cultural distribution: {dict(culture_dist)}")
         
-        # Convert sparse matrix back to dense if needed
-        if hasattr(self, 'similarity_matrix') and self.similarity_matrix is not None:
-            if sparse.issparse(self.similarity_matrix):
-                self.similarity_matrix = self.similarity_matrix.toarray()
+        return result
+
+    # ✅ NEW METHOD 3: CULTURAL SIMILARITY CALCULATION
+    def _calculate_cultural_similarity(self, seed, candidates_df):
+        """Calculate cultural similarity using ISRC + market + text hierarchy"""
+        
+        seed_culture = seed.get('primary_culture', 'other')
+        seed_openness = seed.get('cultural_openness', 0.5)
+        
+        cultural_scores = []
+        
+        for _, candidate in candidates_df.iterrows():
+            candidate_culture = candidate.get('primary_culture', 'other')
+            candidate_openness = candidate.get('cultural_openness', 0.5)
+            
+            # Perfect match - same culture
+            if seed_culture == candidate_culture:
+                base_score = 1.0
+            
+            # Cross-cultural similarity with hierarchy
+            elif seed_culture != 'other' and candidate_culture != 'other':
+                # Vietnamese <-> East Asian bonus
+                if (seed_culture == 'vietnamese' and candidate_culture in ['korean', 'japanese', 'chinese']) or \
+                   (candidate_culture == 'vietnamese' and seed_culture in ['korean', 'japanese', 'chinese']):
+                    base_score = 0.35  # Moderate cross-Asian similarity
+                
+                # East Asian cross-similarity (K-pop, J-pop, C-pop)
+                elif seed_culture in ['korean', 'japanese', 'chinese'] and \
+                     candidate_culture in ['korean', 'japanese', 'chinese']:
+                    base_score = 0.45  # Higher East Asian cross-similarity
+                
+                # Western languages similarity
+                elif seed_culture == 'western' and candidate_culture == 'spanish':
+                    base_score = 0.25
+                elif seed_culture == 'spanish' and candidate_culture == 'western':
+                    base_score = 0.25
+                
+                # Distant cultures
+                else:
+                    base_score = 0.15
+            
+            # One unknown culture
+            else:
+                base_score = 0.20
+            
+            # Apply cultural openness bonus for cross-cultural tracks
+            if seed_culture != candidate_culture:
+                openness_bonus = (seed_openness + candidate_openness) / 2 * 0.3
+                base_score = min(1.0, base_score + openness_bonus)
+            
+            cultural_scores.append(base_score)
+        
+        return np.array(cultural_scores)
+
+    # ✅ NEW METHOD 4: PROFESSIONAL SIMILARITY
+    def _calculate_professional_similarity(self, seed, candidates_df):
+        """Calculate professional quality similarity"""
+        
+        seed_prof_score = seed.get('enhanced_professional_score', 0.5)
+        seed_tier = seed.get('professional_tier', 'independent')
+        
+        professional_scores = []
+        
+        for _, candidate in candidates_df.iterrows():
+            candidate_prof_score = candidate.get('enhanced_professional_score', 0.5)
+            candidate_tier = candidate.get('professional_tier', 'independent')
+            
+            # Exact tier match bonus
+            if seed_tier == candidate_tier:
+                tier_bonus = 0.3
+            elif (seed_tier in ['major_professional', 'professional'] and 
+                  candidate_tier in ['major_professional', 'professional']):
+                tier_bonus = 0.2  # Both professional
+            elif (seed_tier in ['semi_professional', 'independent'] and 
+                  candidate_tier in ['semi_professional', 'independent']):
+                tier_bonus = 0.15  # Both indie
+            else:
+                tier_bonus = 0.0
+            
+            # Score similarity (euclidean distance based)
+            score_diff = abs(seed_prof_score - candidate_prof_score)
+            score_similarity = max(0.0, 1.0 - score_diff)
+            
+            # Combined professional similarity
+            final_prof_sim = (score_similarity * 0.7) + tier_bonus
+            professional_scores.append(min(1.0, final_prof_sim))
+        
+        return np.array(professional_scores)
+
+    # ✅ NEW METHOD 5: CULTURAL GENRE BOOST
+    def _apply_cultural_genre_boost(self, genre_sim, seed, candidates_df):
+        """Apply cultural context to genre similarity"""
+        
+        seed_culture = seed.get('primary_culture', 'other')
+        enhanced_genre_sim = np.copy(genre_sim)
+        
+        # Cultural genre preferences
+        cultural_genre_preferences = {
+            'vietnamese': ['genre_vpop', 'genre_ballad', 'genre_pop'],
+            'korean': ['genre_kpop', 'genre_pop', 'genre_electronic'],
+            'japanese': ['genre_jpop', 'genre_pop', 'genre_rock'],
+            'chinese': ['genre_cpop', 'genre_pop', 'genre_ballad'],
+            'western': ['genre_pop', 'genre_rock', 'genre_hip_hop'],
+            'spanish': ['genre_latin', 'genre_reggaeton', 'genre_pop']
+        }
+        
+        preferred_genres = cultural_genre_preferences.get(seed_culture, [])
+        
+        for i, (_, candidate) in enumerate(candidates_df.iterrows()):
+            if i >= len(enhanced_genre_sim):
+                continue
+                
+            # Boost genre similarity if candidate has culturally preferred genres
+            genre_boost = 0.0
+            for pref_genre in preferred_genres:
+                if pref_genre in candidates_df.columns and candidate.get(pref_genre, 0) > 0:
+                    genre_boost += 0.1
+            
+            enhanced_genre_sim[i] = min(1.0, enhanced_genre_sim[i] + genre_boost)
+        
+        return enhanced_genre_sim
+
+    # ✅ NEW METHOD 6: INTELLIGENT FALLBACK
+    def _create_intelligent_fallback(self, track_name, artist, n_recommendations):
+        """Create culturally-aware fallback recommendations"""
+        
+        # Try to detect culture from track name or artist
+        detected_culture = self._detect_culture_from_text(track_name, artist)
+        
+        if detected_culture != 'other':
+            # Filter by detected culture
+            culture_tracks = self.tracks_df[
+                self.tracks_df['primary_culture'] == detected_culture
+            ]
+            
+            if not culture_tracks.empty:
+                # Sort by popularity and professional quality
+                if 'popularity' in culture_tracks.columns:
+                    fallback = culture_tracks.nlargest(n_recommendations, 'popularity')
+                else:
+                    fallback = culture_tracks.sample(min(n_recommendations, len(culture_tracks)))
+                
+                fallback = fallback.copy()
+                fallback['final_score'] = 0.6  # Medium confidence for cultural fallback
+                fallback['fallback_type'] = f'cultural_{detected_culture}'
+                
+                logger.info(f"Cultural fallback: Found {len(fallback)} {detected_culture} tracks")
+                return fallback[['name', 'artist', 'final_score']].round(3)
+        
+        # Default fallback - popular tracks with cultural diversity
+        if 'popularity' in self.tracks_df.columns:
+            fallback = self.tracks_df.nlargest(n_recommendations * 2, 'popularity')
+            
+            # Ensure cultural diversity in fallback
+            diverse_fallback = []
+            cultures_used = set()
+            
+            for _, track in fallback.iterrows():
+                track_culture = track.get('primary_culture', 'other')
+                if track_culture not in cultures_used or len(diverse_fallback) < n_recommendations:
+                    diverse_fallback.append(track)
+                    cultures_used.add(track_culture)
+                    
+                if len(diverse_fallback) >= n_recommendations:
+                    break
+            
+            result_df = pd.DataFrame(diverse_fallback)
+            result_df['final_score'] = 0.4  # Lower confidence for general fallback
+            result_df['fallback_type'] = 'diverse_popular'
+            
+            return result_df[['name', 'artist', 'final_score']].round(3)
+        
+        # Last resort - random sampling
+        return self._create_fallback_recommendations(track_name, n_recommendations)
+
+    def _detect_culture_from_text(self, track_name, artist):
+        """Detect culture from track name and artist text"""
+        text = f"{track_name or ''} {artist or ''}".lower()
+        
+        # Vietnamese detection
+        vietnamese_chars = 'àáảãạăắằẳẵặâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ'
+        if any(char in text for char in vietnamese_chars):
+            return 'vietnamese'
+        
+        # Korean detection
+        korean_chars = 'ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎㅏㅑㅓㅕㅗㅛㅜㅠㅡㅣ'
+        korean_words = ['kpop', 'k-pop', 'korea', 'seoul', 'bts', 'blackpink']
+        if any(char in text for char in korean_chars) or any(word in text for word in korean_words):
+            return 'korean'
+        
+        # Japanese detection  
+        japanese_chars = 'あいうえおかきくけこアイウエオカキクケコ'
+        japanese_words = ['jpop', 'j-pop', 'japan', 'tokyo', 'anime']
+        if any(char in text for char in japanese_chars) or any(word in text for word in japanese_words):
+            return 'japanese'
+        
+        # Spanish detection
+        spanish_chars = 'ñáéíóúü'
+        spanish_words = ['reggaeton', 'salsa', 'bachata', 'español', 'latino']
+        if any(char in text for char in spanish_chars) or any(word in text for word in spanish_words):
+            return 'spanish'
+        
+        return 'other'
+
+    def save(self, filepath):
+        with open(filepath, "wb") as f:
+            pickle.dump(self, f)
+
+    @classmethod
+    def load(cls, filepath):
+        with open(filepath, "rb") as f:
+            return pickle.load(f)
