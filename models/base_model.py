@@ -3,6 +3,8 @@ import numpy as np
 import os
 import pickle
 import logging
+import re
+import unicodedata
 from config.config import MODELS_DIR
 
 logger = logging.getLogger(__name__)
@@ -19,9 +21,13 @@ class BaseRecommender:
     
     def _normalize_text(self, text):
         """Normalize text for better matching"""
-        if not isinstance(text, str):
+        if pd.isna(text) or text is None:
             return ""
-        return str(text).lower().strip()
+        # Cải thiện: Xử lý dấu câu và ký tự đặc biệt
+        text = re.sub(r'[^\w\s]', '', str(text).lower().strip())
+        # Cải thiện: Xử lý các ký tự Unicode đặc biệt
+        text = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('ASCII')
+        return text
     
     def _find_track_index(self, track_id=None, track_name=None, artist=None):
         """Find track index with consistent behavior across all models"""
@@ -161,3 +167,16 @@ class BaseRecommender:
         except (ValueError, TypeError):
             logger.warning(f"Invalid n_recommendations value: {n}. Using default value 10.")
             return 10
+    
+    def _validate_track_exists(self, track_name, artist=None):
+        """Validate if track exists in dataset with better error handling"""
+        if self.tracks_df is None:
+            return False, "Model not trained with data"
+        
+        track_idx = self._find_track_index(track_name=track_name, artist=artist)
+        if track_idx is not None:
+            return True, track_idx
+        
+        # Cải thiện: Trả về gợi ý bài hát tương tự
+        suggestions = self._get_similar_track_names(track_name)
+        return False, suggestions
