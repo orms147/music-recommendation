@@ -17,182 +17,218 @@ from utils.data_processor import DataProcessor
 from models.enhanced_content_model import EnhancedContentRecommender
 from models.weighted_content_model import WeightedContentRecommender
 
-# Thiết lập logging
+# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load biến môi trường
+# Load environment variables
 load_dotenv(dotenv_path=Path(__file__).parent / '.env')
 
-# Biến toàn cục cho model
+# Global model variables
 model = None
 weighted_model = None
 
 def initialize_model():
-    """Khởi tạo model khi khởi động ứng dụng"""
+    """Initialize models on app startup"""
     global model, weighted_model
-    model_path = os.path.join(MODELS_DIR, 'metadata_recommender.pkl')
+    
+    # ✅ Fixed file paths aligned with actual data structure
+    model_path = os.path.join(MODELS_DIR, 'enhanced_content_recommender.pkl')
     weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
 
     # EnhancedContentRecommender
     if os.path.exists(model_path):
         try:
             model = EnhancedContentRecommender.load(model_path)
-            logging.info(f"Đã nạp model từ {model_path}")
-            logging.info(f"Model được huấn luyện vào: {model.train_time}")
+            logger.info(f"Loaded EnhancedContentRecommender from {model_path}")
         except Exception as e:
-            logging.error(f"Lỗi khi nạp model: {e}")
+            logger.error(f"Error loading enhanced model: {e}")
             model = None
 
     # WeightedContentRecommender
     if os.path.exists(weighted_model_path):
         try:
             weighted_model = WeightedContentRecommender.load(weighted_model_path)
-            logging.info(f"Đã nạp weighted model từ {weighted_model_path}")
+            logger.info(f"Loaded WeightedContentRecommender from {weighted_model_path}")
         except Exception as e:
-            logging.error(f"Lỗi khi nạp weighted model: {e}")
+            logger.error(f"Error loading weighted model: {e}")
             weighted_model = None
 
 def check_spotify_credentials():
+    """Check if Spotify credentials are configured"""
     from config.config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
     return bool(SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET)
 
 def setup_initial_dataset(progress=gr.Progress(), tracks_per_query=DEFAULT_TRACKS_PER_QUERY):
-    """Thiết lập bộ dữ liệu ban đầu với progress bar và auto-fetch artist genres"""
+    """Setup initial dataset with progress tracking"""
     if not check_spotify_credentials():
-        return "⚠️ Thiếu thông tin xác thực Spotify. Vui lòng thiết lập file .env."
+        return "⚠️ Missing Spotify credentials. Please setup .env file with SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET."
     
     os.makedirs(RAW_DATA_DIR, exist_ok=True)
-    progress(0.1, desc="Đang thu thập dữ liệu từ Spotify...")
+    progress(0.1, desc="Checking existing data...")
     
     try:
-        # Kiểm tra xem đã có đủ data chưa
-        tracks_path = os.path.join(RAW_DATA_DIR, 'spotify_tracks.csv')
-        processed_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
+        # ✅ Check actual file paths from data processor
+        processed_path = os.path.join(PROCESSED_DATA_DIR, 'processed_tracks.csv')
         
         if os.path.exists(processed_path):
             existing_df = pd.read_csv(processed_path)
-            if len(existing_df) >= 10000:  # Đã có đủ data
-                progress(0.3, desc="Đã có data, kiểm tra artist genres...")
+            progress(0.3, desc=f"Found {len(existing_df)} existing tracks...")
+            
+            if len(existing_df) >= 1000:  # Already have sufficient data
+                progress(1.0, desc="Dataset ready!")
                 
-                # Kiểm tra và fetch artist genres nếu thiếu
-                genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
-                if not os.path.exists(genres_path):
-                    progress(0.4, desc="Đang fetch artist genres từ Spotify...")
-                    
-                    from utils.data_fetcher import SpotifyDataFetcher
-                    fetcher = SpotifyDataFetcher()
-                    
-                    if fetcher.fetch_all_missing_artist_genres():
-                        progress(0.7, desc="Đang xử lý lại data với genre features...")
-                        processor = DataProcessor()
-                        processor.process_all()
-                        progress(1.0, desc="Hoàn tất với real genres!")
-                        return f"✅ Đã cập nhật {len(existing_df)} bài hát với real genre features từ Spotify!"
-                    else:
-                        progress(0.7, desc="Không thể fetch genres, dùng fallback...")
-                        processor = DataProcessor()
-                        processor.process_all()
-                        progress(1.0, desc="Hoàn tất với fallback genres!")
-                        return f"✅ Đã xử lý {len(existing_df)} bài hát với fallback genre features."
+                # ✅ Check cultural intelligence features
+                cultural_features = ['music_culture', 'is_vietnamese', 'is_korean', 'is_japanese']
+                available_cultural = [f for f in cultural_features if f in existing_df.columns]
+                
+                if len(available_cultural) >= 3:
+                    return f"✅ Dataset ready with {len(existing_df)} tracks and {len(available_cultural)} cultural intelligence features!"
                 else:
-                    progress(1.0, desc="Data đã đầy đủ!")
-                    return f"✅ Đã có dữ liệu đầy đủ với {len(existing_df)} bài hát và real genres!"
+                    progress(0.5, desc="Reprocessing for cultural features...")
+                    processor = DataProcessor()
+                    processor.process_all()
+                    progress(1.0, desc="Cultural features updated!")
+                    return f"✅ Updated dataset with {len(existing_df)} tracks and enhanced cultural intelligence!"
         
-        # Nếu chưa có data hoặc data chưa đủ
-        progress(0.2, desc="Thu thập tracks từ Spotify...")
-        tracks_df = fetch_initial_dataset(tracks_per_query=tracks_per_query)
-        if tracks_df is None or tracks_df.empty:
-            return "❌ Không thể lấy dữ liệu bài hát từ Spotify."
+        # Fetch new data
+        progress(0.2, desc="Fetching tracks from Spotify...")
+        success = fetch_initial_dataset(tracks_per_query=tracks_per_query)
         
-        progress(0.5, desc="Đang fetch artist genres...")
+        if not success:
+            return "❌ Failed to fetch tracks from Spotify API."
         
-        # Auto-fetch artist genres
-        from utils.data_fetcher import SpotifyDataFetcher
-        fetcher = SpotifyDataFetcher()
-        genres_success = fetcher.fetch_all_missing_artist_genres()
-        
-        progress(0.8, desc="Đang xử lý dữ liệu...")
+        progress(0.6, desc="Processing data with cultural intelligence...")
         processor = DataProcessor()
-        processor.process_all()
+        success = processor.process_all()
         
-        progress(1.0, desc="Hoàn tất!")
+        if not success:
+            return "❌ Failed to process data."
         
-        if genres_success:
-            return f"✅ Đã thiết lập dữ liệu với {len(tracks_df)} bài hát và real genre features từ Spotify!"
+        # ✅ Check final result
+        if os.path.exists(processed_path):
+            final_df = pd.read_csv(processed_path)
+            progress(1.0, desc="Setup complete!")
+            
+            # ✅ Report on cultural intelligence
+            cultural_dist = final_df.get('music_culture', pd.Series()).value_counts().to_dict()
+            isrc_coverage = (final_df.get('isrc', pd.Series()) != '').sum() if 'isrc' in final_df.columns else 0
+            
+            return f"""✅ Dataset setup successful!
+            
+**📊 Dataset Stats:**
+- **Total tracks:** {len(final_df):,}
+- **ISRC coverage:** {isrc_coverage}/{len(final_df)} ({isrc_coverage/len(final_df)*100:.1f}%)
+- **Cultural distribution:** {cultural_dist}
+
+**🧠 Cultural Intelligence Features:**
+- ISRC-based culture classification ✅
+- Market penetration analysis ✅  
+- Cross-cultural similarity ✅
+"""
         else:
-            return f"✅ Đã thiết lập dữ liệu với {len(tracks_df)} bài hát (sử dụng fallback genres do Spotify API limit)."
+            return "❌ Data processing completed but no output file found."
         
     except Exception as e:
-        logger.error(f"Lỗi thiết lập dữ liệu: {e}\n{traceback.format_exc()}")
-        return f"❌ Lỗi thiết lập dữ liệu: {e}"
+        logger.error(f"Error in setup_initial_dataset: {e}\n{traceback.format_exc()}")
+        return f"❌ Setup error: {str(e)}"
 
 def train_model():
-    """Huấn luyện hoặc nạp lại mô hình đề xuất dựa trên metadata"""
+    """Train or load recommendation models"""
     global model, weighted_model
-    try:
-        # Đường dẫn để lưu/nạp mô hình
-        model_path = os.path.join(MODELS_DIR, 'metadata_recommender.pkl')
-        weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
-
-        # Kiểm tra xem mô hình đã tồn tại chưa
-        if os.path.exists(model_path):
-            logging.info("Tìm thấy mô hình đã huấn luyện, đang nạp...")
-            model = EnhancedContentRecommender.load(model_path)
-            logging.info(f"Đã nạp mô hình thành công (được huấn luyện vào: {model.train_time})")
-        else:
-            logging.info("Không tìm thấy mô hình đã lưu, đang huấn luyện mới...")
-            processed_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
-            if not os.path.exists(processed_path):
-                processor = DataProcessor()
-                processor.process_all()
-            tracks_df = pd.read_csv(processed_path)
-            model = EnhancedContentRecommender()
-            model.train(tracks_df)
-            model.save(model_path)
-            logging.info(f"Đã huấn luyện và lưu mô hình EnhancedContentRecommender thành công!")
-
-        # WeightedContentRecommender
-        if os.path.exists(weighted_model_path):
-            logging.info("Tìm thấy weighted model đã huấn luyện, đang nạp...")
-            weighted_model = WeightedContentRecommender.load(weighted_model_path)
-            logging.info("Đã nạp weighted model thành công!")
-        else:
-            logging.info("Không tìm thấy weighted model đã lưu, đang huấn luyện mới...")
-            processed_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
-            if not os.path.exists(processed_path):
-                processor = DataProcessor()
-                processor.process_all()
-            tracks_df = pd.read_csv(processed_path)
-            weighted_model = WeightedContentRecommender()
-            weighted_model.train(tracks_df)
-            weighted_model.save(weighted_model_path)
-            logging.info("Đã huấn luyện và lưu weighted model thành công!")
-
-        return "Đã huấn luyện cả hai mô hình thành công!"
-    except Exception as e:
-        logging.error(f"Lỗi khi huấn luyện mô hình: {str(e)}")
-        return f"Lỗi khi huấn luyện mô hình: {str(e)}"
-
-def recommend_similar(song_name, artist_name="", n=10):
-    """Enhanced recommendation with better debugging"""
-    global model, weighted_model
-    if model is None or not model.is_trained:
-        return "⚠️ Mô hình Metadata chưa được huấn luyện. Vui lòng huấn luyện mô hình trước."
-    if weighted_model is None or not weighted_model.is_trained:
-        return "⚠️ Mô hình Weighted chưa được huấn luyện. Vui lòng huấn luyện mô hình trước."
     
     try:
-        # Load processed data để kiểm tra
-        processed_path = os.path.join(PROCESSED_DATA_DIR, 'track_features.csv')
+        # ✅ Fixed file paths
+        enhanced_model_path = os.path.join(MODELS_DIR, 'enhanced_content_recommender.pkl')
+        weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
+        processed_path = os.path.join(PROCESSED_DATA_DIR, 'processed_tracks.csv')
+
+        # Check data availability
+        if not os.path.exists(processed_path):
+            return "❌ No processed data found. Please setup dataset first."
+        
+        tracks_df = pd.read_csv(processed_path)
+        logger.info(f"Training with {len(tracks_df)} tracks and {len(tracks_df.columns)} features")
+        
+        # ✅ Validate required features
+        required_features = ['id', 'name', 'artist', 'popularity']
+        missing_features = [f for f in required_features if f not in tracks_df.columns]
+        if missing_features:
+            return f"❌ Missing required features: {missing_features}. Please reprocess data."
+        
+        results = []
+        
+        # Train EnhancedContentRecommender
+        if os.path.exists(enhanced_model_path):
+            logger.info("Loading existing EnhancedContentRecommender...")
+            model = EnhancedContentRecommender.load(enhanced_model_path)
+            results.append("✅ EnhancedContentRecommender loaded")
+        else:
+            logger.info("Training new EnhancedContentRecommender...")
+            model = EnhancedContentRecommender()
+            success = model.train(tracks_df)
+            if success:
+                model.save(enhanced_model_path)
+                results.append("✅ EnhancedContentRecommender trained and saved")
+            else:
+                results.append("❌ EnhancedContentRecommender training failed")
+
+        # Train WeightedContentRecommender  
+        if os.path.exists(weighted_model_path):
+            logger.info("Loading existing WeightedContentRecommender...")
+            weighted_model = WeightedContentRecommender.load(weighted_model_path)
+            results.append("✅ WeightedContentRecommender loaded")
+        else:
+            logger.info("Training new WeightedContentRecommender...")
+            weighted_model = WeightedContentRecommender()
+            success = weighted_model.train(tracks_df)
+            if success:
+                weighted_model.save(weighted_model_path)
+                results.append("✅ WeightedContentRecommender trained and saved")
+            else:
+                results.append("❌ WeightedContentRecommender training failed")
+
+        # ✅ Feature quality analysis
+        feature_analysis = []
+        cultural_features = [col for col in tracks_df.columns if col.startswith('is_') or col == 'music_culture']
+        genre_features = [col for col in tracks_df.columns if col.startswith('genre_')]
+        
+        feature_analysis.append(f"📊 **Cultural features:** {len(cultural_features)}")
+        feature_analysis.append(f"🎵 **Genre features:** {len(genre_features)}")
+        
+        if 'cultural_confidence' in tracks_df.columns:
+            avg_confidence = tracks_df['cultural_confidence'].mean()
+            feature_analysis.append(f"🧠 **Cultural confidence:** {avg_confidence:.3f}")
+
+        return f"""**🤖 Model Training Results:**
+
+{chr(10).join(results)}
+
+**📈 Feature Quality:**
+{chr(10).join(feature_analysis)}
+
+**🚀 Ready for recommendations!**"""
+
+    except Exception as e:
+        logger.error(f"Error training models: {e}\n{traceback.format_exc()}")
+        return f"❌ Training error: {str(e)}"
+
+def recommend_similar(song_name, artist_name="", n=10):
+    """Generate recommendations with both models"""
+    global model, weighted_model
+    
+    if model is None or not model.is_trained:
+        return "⚠️ EnhancedContentRecommender not trained. Please train models first."
+    if weighted_model is None or not weighted_model.is_trained:
+        return "⚠️ WeightedContentRecommender not trained. Please train models first."
+    
+    try:
+        # ✅ Load data for context
+        processed_path = os.path.join(PROCESSED_DATA_DIR, 'processed_tracks.csv')
         if os.path.exists(processed_path):
             tracks_df = pd.read_csv(processed_path)
             
-            # Debug: Log available features
-            logger.info(f"Available features: {tracks_df.columns.tolist()}")
-            logger.info(f"Dataset shape: {tracks_df.shape}")
-            
-            # Tìm bài hát gốc
+            # Find seed track for context
             mask = tracks_df['name'].str.lower().str.strip() == song_name.lower().strip()
             if artist_name:
                 mask = mask & (tracks_df['artist'].str.lower().str.strip() == artist_name.lower().strip())
@@ -200,157 +236,221 @@ def recommend_similar(song_name, artist_name="", n=10):
             found_tracks = tracks_df[mask]
             
             if found_tracks.empty:
-                # Enhanced fallback với suggestions
-                available_tracks_sample = tracks_df[['name', 'artist']].head(10)
-                
-                # Tìm tracks tương tự bằng fuzzy matching
+                # ✅ Enhanced fuzzy matching suggestions
                 try:
                     from difflib import get_close_matches
                     track_names = tracks_df['name'].tolist()
-                    close_matches = get_close_matches(song_name, track_names, n=5, cutoff=0.6)
+                    close_matches = get_close_matches(song_name, track_names, n=3, cutoff=0.6)
                     
                     suggestion_text = ""
                     if close_matches:
-                        suggestion_text = f"\n**Gợi ý tương tự:** {', '.join(close_matches[:3])}"
-                except ImportError:
-                    suggestion_text = ""
-                
-                return f"""❌ Không tìm thấy bài hát **{song_name}** (nghệ sĩ: {artist_name}) trong dữ liệu.
+                        suggestion_text = f"\n**🔍 Similar tracks found:** {', '.join(close_matches)}"
+                    
+                    # Show sample tracks with cultural info
+                    sample_tracks = tracks_df[['name', 'artist', 'music_culture']].head(5)
+                    
+                    return f"""❌ Track **"{song_name}"** by **{artist_name}** not found.
 {suggestion_text}
 
-**Một số bài hát có sẵn:**
-{available_tracks_sample.to_markdown(index=False)}
+**📚 Sample tracks in database:**
+{sample_tracks.to_markdown(index=False)}
 
-Vui lòng kiểm tra lại tên bài hát và nghệ sĩ!"""
+**💡 Tip:** Try using exact track name and artist name."""
+                
+                except Exception:
+                    return f"""❌ Track **"{song_name}"** not found in database.
+                    
+**💡 Please check spelling and try again.**"""
             
-            # Hiển thị thông tin bài hát gốc với nhiều thông tin hơn
-            original_info = found_tracks.iloc[0]
-            seed_info = f"""**🎵 Bài hát gốc:** {original_info['name']} - {original_info['artist']}
-**Popularity:** {original_info.get('popularity', 'N/A')} | **Năm phát hành:** {original_info.get('release_year', 'N/A')}
-**Duration:** {original_info.get('duration_min', 0):.1f} phút | **Album:** {original_info.get('album', 'N/A')}
+            # ✅ Show seed track info with cultural context
+            seed_track = found_tracks.iloc[0]
+            seed_culture = seed_track.get('music_culture', 'other')
+            seed_confidence = seed_track.get('cultural_confidence', 0)
+            
+            seed_info = f"""**🎵 Seed Track:** {seed_track['name']} - {seed_track['artist']}
+**🌍 Culture:** {seed_culture} | **📊 Popularity:** {seed_track.get('popularity', 'N/A')}
+**📅 Year:** {seed_track.get('release_year', 'N/A')} | **🧠 Cultural Confidence:** {seed_confidence:.3f}
 
 ---
 """
         else:
-            seed_info = "**Dữ liệu bài hát gốc không có sẵn**\n\n---\n"
+            seed_info = "**🎵 Generating recommendations...**\n\n---\n"
+
+        # ✅ Generate recommendations with error handling
+        logger.info(f"Generating recommendations for '{song_name}' by '{artist_name}'")
         
-        # Thực hiện đề xuất với error handling tốt hơn
-        logger.info(f"Generating recommendations for '{song_name}' by {artist_name}")
+        results = []
         
+        # EnhancedContentRecommender
         try:
-            rec1 = model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
-            model_1_success = True
+            enhanced_recs = model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
+            if not enhanced_recs.empty:
+                results.append("## 🔍 EnhancedContentRecommender (Smart Search + Cultural Intelligence):")
+                
+                # ✅ Display with cultural context
+                display_cols = ['name', 'artist', 'enhanced_score']
+                if 'music_culture' in enhanced_recs.columns:
+                    display_cols.append('music_culture')
+                if 'popularity' in enhanced_recs.columns:
+                    display_cols.append('popularity')
+                
+                available_cols = [col for col in display_cols if col in enhanced_recs.columns]
+                results.append(enhanced_recs[available_cols].round(3).to_markdown(index=False))
+                
+                # ✅ Cultural analytics
+                if 'music_culture' in enhanced_recs.columns:
+                    culture_dist = enhanced_recs['music_culture'].value_counts()
+                    results.append(f"\n**🌍 Cultural diversity:** {dict(culture_dist)}")
+                
+                avg_score = enhanced_recs['enhanced_score'].mean() if 'enhanced_score' in enhanced_recs.columns else 0
+                results.append(f"**📈 Avg enhanced score:** {avg_score:.3f}")
+            else:
+                results.append("## 🔍 EnhancedContentRecommender:\n❌ No recommendations generated")
         except Exception as e:
-            logger.error(f"Model 1 failed: {e}")
-            rec1 = pd.DataFrame()
-            model_1_success = False
-        
+            logger.error(f"EnhancedContentRecommender failed: {e}")
+            results.append("## 🔍 EnhancedContentRecommender:\n❌ Model error")
+
+        results.append("\n---\n")
+
+        # WeightedContentRecommender
         try:
-            rec2 = weighted_model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
-            model_2_success = True
+            weighted_recs = weighted_model.recommend(track_name=song_name, artist=artist_name, n_recommendations=n)
+            if not weighted_recs.empty:
+                results.append("## 🎯 WeightedContentRecommender (ISRC Cultural + Genre Weights):")
+                
+                display_cols = ['name', 'artist', 'final_score']
+                if 'music_culture' in weighted_recs.columns:
+                    display_cols.append('music_culture')
+                if 'popularity' in weighted_recs.columns:
+                    display_cols.append('popularity')
+                
+                available_cols = [col for col in display_cols if col in weighted_recs.columns]
+                results.append(weighted_recs[available_cols].round(3).to_markdown(index=False))
+                
+                # ✅ Cultural analytics
+                if 'music_culture' in weighted_recs.columns:
+                    culture_dist = weighted_recs['music_culture'].value_counts()
+                    results.append(f"\n**🌍 Cultural diversity:** {dict(culture_dist)}")
+                
+                avg_score = weighted_recs['final_score'].mean() if 'final_score' in weighted_recs.columns else 0
+                results.append(f"**📈 Avg weighted score:** {avg_score:.3f}")
+            else:
+                results.append("## 🎯 WeightedContentRecommender:\n❌ No recommendations generated")
         except Exception as e:
-            logger.error(f"Model 2 failed: {e}")
-            rec2 = pd.DataFrame()
-            model_2_success = False
-        
-        # Tạo kết quả với debug info
-        result = seed_info
-        
-        # Model 1 results
-        result += "### 🔍 EnhancedContentRecommender (Fuzzy Search + Smart Scoring):\n"
-        if model_1_success and not rec1.empty:
-            display_cols = ['name', 'artist', 'enhanced_score', 'popularity', 'release_year']
-            available_cols = [col for col in display_cols if col in rec1.columns]
-            result += rec1[available_cols].round(3).to_markdown(index=False) + "\n"
-            
-            # Add quality metrics
-            avg_score = rec1['enhanced_score'].mean() if 'enhanced_score' in rec1.columns else 0
-            result += f"\n*Avg enhanced score: {avg_score:.3f}*\n"
-        else:
-            result += "❌ Model failed to generate recommendations\n"
-        
-        result += "\n---\n"
-        
-        # Model 2 results
-        result += "### 🎯 WeightedContentRecommender (Language-First + Mood Hierarchy):\n"
-        if model_2_success and not rec2.empty:
-            display_cols = ['name', 'artist', 'final_score', 'popularity', 'release_year']
-            available_cols = [col for col in display_cols if col in rec2.columns]
-            result += rec2[available_cols].round(3).to_markdown(index=False)
-            
-            # Add quality metrics
-            avg_score = rec2['final_score'].mean() if 'final_score' in rec2.columns else 0
-            result += f"\n\n*Avg weighted score: {avg_score:.3f}*"
-        else:
-            result += "❌ Model failed to generate recommendations"
-        
-        return result
+            logger.error(f"WeightedContentRecommender failed: {e}")
+            results.append("## 🎯 WeightedContentRecommender:\n❌ Model error")
+
+        return seed_info + "\n".join(results)
         
     except Exception as e:
-        logger.error(f"Lỗi khi đề xuất: {e}\n{traceback.format_exc()}")
-        return f"❌ Lỗi hệ thống khi đề xuất: {str(e)}"
+        logger.error(f"Recommendation error: {e}\n{traceback.format_exc()}")
+        return f"❌ System error: {str(e)}"
 
 def check_data_status():
-    """Check data completeness and quality for recommendation system"""
+    """Check data completeness and quality"""
     try:
-        from utils.data_checker import check_data_completeness
-        result = check_data_completeness()
+        # ✅ Simple data status check
+        raw_tracks = os.path.join(RAW_DATA_DIR, 'tracks.csv')
+        processed_tracks = os.path.join(PROCESSED_DATA_DIR, 'processed_tracks.csv')
         
-        # Format result for Gradio display
-        score = result['readiness_score']
-        max_score = result['max_score']
-        tracks_count = result['tracks_count']
+        status_lines = []
+        score = 0
+        max_score = 5
         
-        # Use text-based status indicators
-        if score >= 6:
-            status_emoji = "[EXCELLENT]"
-            status_text = "Production Ready!"
-        elif score >= 4:
-            status_emoji = "[GOOD]"
-            status_text = "Ready with minor improvements"
-        elif score >= 2:
-            status_emoji = "[FAIR]"
-            status_text = "Basic functionality available"
+        # Check raw data
+        if os.path.exists(raw_tracks):
+            raw_df = pd.read_csv(raw_tracks)
+            status_lines.append(f"✅ **Raw data:** {len(raw_df):,} tracks")
+            score += 1
         else:
-            status_emoji = "[POOR]"
-            status_text = "More data needed"
+            status_lines.append("❌ **Raw data:** Not found")
         
-        summary = f"""
-## {status_emoji} Data Status Report
-
-**Overall Readiness:** {score}/{max_score} ({score/max_score*100:.1f}%)
-
-**Dataset Size:** {tracks_count:,} tracks
-
-**Status:** {status_text}
-
-**Detailed analysis logged to console.**
-
-**Next Steps:**
-- Check console output for detailed breakdown
-- If score < 6, consider collecting more data
-- Run data processing if files are missing
-        """
+        # Check processed data
+        if os.path.exists(processed_tracks):
+            processed_df = pd.read_csv(processed_tracks)
+            status_lines.append(f"✅ **Processed data:** {len(processed_df):,} tracks")
+            score += 1
+            
+            # Check cultural features
+            cultural_features = [col for col in processed_df.columns if col.startswith('is_') or col == 'music_culture']
+            if len(cultural_features) >= 3:
+                status_lines.append(f"✅ **Cultural intelligence:** {len(cultural_features)} features")
+                score += 1
+            else:
+                status_lines.append("⚠️ **Cultural intelligence:** Limited features")
+            
+            # Check ISRC coverage
+            if 'isrc' in processed_df.columns:
+                isrc_coverage = (processed_df['isrc'] != '').sum() / len(processed_df)
+                if isrc_coverage > 0.5:
+                    status_lines.append(f"✅ **ISRC coverage:** {isrc_coverage*100:.1f}%")
+                    score += 1
+                else:
+                    status_lines.append(f"⚠️ **ISRC coverage:** {isrc_coverage*100:.1f}% (low)")
+            
+            # Check genre features
+            genre_features = [col for col in processed_df.columns if col.startswith('genre_')]
+            if len(genre_features) >= 3:
+                status_lines.append(f"✅ **Genre features:** {len(genre_features)} types")
+                score += 1
+            else:
+                status_lines.append("⚠️ **Genre features:** Limited")
+        else:
+            status_lines.append("❌ **Processed data:** Not found")
         
-        return summary
+        # Check models
+        enhanced_model_path = os.path.join(MODELS_DIR, 'enhanced_content_recommender.pkl')
+        weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
+        
+        if os.path.exists(enhanced_model_path) and os.path.exists(weighted_model_path):
+            status_lines.append("✅ **Models:** Both models available")
+        elif os.path.exists(enhanced_model_path) or os.path.exists(weighted_model_path):
+            status_lines.append("⚠️ **Models:** Partial availability")
+        else:
+            status_lines.append("❌ **Models:** Not trained")
+
+        # Overall status
+        if score >= 4:
+            overall_status = "🚀 **EXCELLENT** - Production ready!"
+        elif score >= 3:
+            overall_status = "✅ **GOOD** - Ready for recommendations"
+        elif score >= 2:
+            overall_status = "⚠️ **FAIR** - Basic functionality"
+        else:
+            overall_status = "❌ **POOR** - Need more data"
+
+        return f"""# 📊 Data Status Report
+
+{overall_status}
+
+**Readiness Score:** {score}/{max_score} ({score/max_score*100:.0f}%)
+
+## Detailed Status:
+{chr(10).join(status_lines)}
+
+## Next Steps:
+- Score < 3: Run data setup
+- Score < 4: Train models
+- Score ≥ 4: Ready for recommendations!
+"""
         
     except Exception as e:
         logger.error(f"Error checking data status: {e}")
-        return f"[ERROR] Error checking data status: {str(e)}"
+        return f"❌ **Error checking data status:** {str(e)}"
 
 def create_ui():
-    with gr.Blocks(title="Music Recommender (Real Spotify Metadata)", theme=gr.themes.Soft()) as app:
-        gr.Markdown("# 🎵 Music Recommender - Real Spotify Data Only")
-        gr.Markdown("*Hệ thống đề xuất âm nhạc dựa trên metadata thực từ Spotify API*")
+    """Create Gradio interface"""
+    with gr.Blocks(title="Music Recommender - ISRC Cultural Intelligence", theme=gr.themes.Soft()) as app:
+        gr.Markdown("# 🎵 Music Recommender - ISRC Cultural Intelligence")
+        gr.Markdown("*Advanced recommendation system with ISRC-based cultural intelligence and Spotify metadata*")
         
-        with gr.Tab("🔧 Thiết lập dữ liệu"):
-            gr.Markdown("### Thiết lập dữ liệu ban đầu từ Spotify API")
-            gr.Markdown("*Thu thập metadata thực từ Spotify, không sử dụng synthetic data*")
+        with gr.Tab("🔧 Data Setup"):
+            gr.Markdown("### Setup Dataset from Spotify API")
+            gr.Markdown("*Collect real metadata with ISRC cultural intelligence*")
             
-            # Data status check
             with gr.Row():
                 with gr.Column():
-                    check_data_btn = gr.Button("🔍 Kiểm tra dữ liệu hiện tại", variant="secondary")
+                    check_data_btn = gr.Button("🔍 Check Current Data", variant="secondary")
                     data_status_output = gr.Markdown()
                     check_data_btn.click(fn=check_data_status, outputs=data_status_output)
                 
@@ -360,50 +460,38 @@ def create_ui():
                         MAX_TRACKS_PER_QUERY, 
                         value=DEFAULT_TRACKS_PER_QUERY, 
                         step=TRACKS_QUERY_STEP, 
-                        label="Số bài hát mỗi truy vấn"
+                        label="Tracks per Query"
                     )
-                    setup_btn = gr.Button("🚀 Thiết lập dữ liệu", variant="primary")
+                    setup_btn = gr.Button("🚀 Setup Dataset", variant="primary")
                     setup_output = gr.Markdown()
                     setup_btn.click(fn=setup_initial_dataset, inputs=[tracks_per_query], outputs=setup_output)
 
-        with gr.Tab("🤖 Huấn luyện mô hình"):
-            gr.Markdown("### Huấn luyện mô hình đề xuất")
-            gr.Markdown("*Huấn luyện với real metadata từ Spotify (popularity, duration, genre, release_year, v.v.)*")
-            train_btn = gr.Button("🏋️ Huấn luyện mô hình", variant="primary")
+        with gr.Tab("🤖 Model Training"):
+            gr.Markdown("### Train Recommendation Models")
+            gr.Markdown("*Train with ISRC cultural intelligence and real Spotify features*")
+            train_btn = gr.Button("🏋️ Train Models", variant="primary")
             train_output = gr.Markdown()
             train_btn.click(fn=train_model, outputs=train_output)
 
-        with gr.Tab("🎯 Đề xuất tương tự"):
-            gr.Markdown("### Đề xuất bài hát tương tự")
-            gr.Markdown("*Dựa trên real Spotify metadata: popularity, genre, artist, release year, duration...*")
+        with gr.Tab("🎯 Recommendations"):
+            gr.Markdown("### Smart Music Recommendations")
+            gr.Markdown("*Powered by ISRC cultural intelligence and weighted content features*")
+            
             with gr.Row():
-                song_input = gr.Textbox(label="🎵 Tên bài hát", placeholder="Ví dụ: Shape of You")
-                artist_input = gr.Textbox(label="👤 Tên nghệ sĩ (tùy chọn)", placeholder="Ví dụ: Ed Sheeran")
-            n_similar = gr.Slider(5, 20, value=10, step=1, label="📊 Số lượng đề xuất")
-            rec_btn = gr.Button("🔍 Đề xuất", variant="primary")
+                song_input = gr.Textbox(label="🎵 Song Name", placeholder="e.g., Dynamite")
+                artist_input = gr.Textbox(label="👤 Artist Name (optional)", placeholder="e.g., BTS")
+            
+            n_similar = gr.Slider(5, 20, value=10, step=1, label="📊 Number of Recommendations")
+            rec_btn = gr.Button("🔍 Get Recommendations", variant="primary")
             rec_output = gr.Markdown()
             rec_btn.click(fn=recommend_similar, inputs=[song_input, artist_input, n_similar], outputs=rec_output)
     
     return app
 
 if __name__ == "__main__":
-    import argparse
-    
-    # Khởi tạo model nếu có
+    # Initialize models if available
     initialize_model()
     
-    parser = argparse.ArgumentParser(description="Hệ thống đề xuất âm nhạc")
-    parser.add_argument("--fetch-large", action="store_true", help="Thu thập tập dữ liệu lớn (100,000+ bài hát)")
-    parser.add_argument("--size", type=int, default=LARGE_DATASET_DEFAULT_SIZE, help="Kích thước tập dữ liệu mục tiêu")
-    args = parser.parse_args()
-    
-    if args.fetch_large:
-        from utils.data_fetcher import fetch_large_dataset
-        fetch_large_dataset(
-            target_size=args.size,
-            batch_size=LARGE_DATASET_BATCH_SIZE,
-            save_interval=LARGE_DATASET_SAVE_INTERVAL
-        )
-    else:
-        demo = create_ui()
-        demo.launch()
+    # Create and launch UI
+    demo = create_ui()
+    demo.launch(share=False, server_name="0.0.0.0", server_port=7860)
