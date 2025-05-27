@@ -42,7 +42,7 @@ CONTENT_FEATURES = [
 
 # Data collection settings
 DEFAULT_TRACKS_PER_QUERY = 100
-MAX_TRACKS_PER_QUERY = 300     # ✅ Reduced for realistic API limits
+MAX_TRACKS_PER_QUERY = 500     # ✅ Reduced for realistic API limits
 MIN_TRACKS_PER_QUERY = 50      # ✅ Minimum for decent diversity
 TRACKS_QUERY_STEP = 25
 
@@ -50,3 +50,51 @@ TRACKS_QUERY_STEP = 25
 LARGE_DATASET_DEFAULT_SIZE = 5000   # ✅ More realistic target
 LARGE_DATASET_BATCH_SIZE = 100      # ✅ Reasonable batch size
 LARGE_DATASET_SAVE_INTERVAL = 1000  # ✅ Save more frequently
+
+# Cultural Intelligence Configuration
+CULTURAL_FEATURES = {
+    'ISRC_COUNTRIES': {
+        'VN': 'vietnamese',
+        'KR': 'korean', 
+        'JP': 'japanese',
+        'CN': 'chinese', 'HK': 'chinese', 'TW': 'chinese',
+        'US': 'western', 'GB': 'western', 'CA': 'western', 'AU': 'western',
+        'ES': 'spanish', 'MX': 'spanish', 'AR': 'spanish', 'CO': 'spanish',
+        'BR': 'brazilian',
+        'DE': 'western', 'FR': 'western', 'IT': 'western',
+        'IN': 'indian',
+        'TH': 'thai', 'MY': 'malaysian', 'ID': 'indonesian'
+    },
+    'PRIORITY_ORDER': [
+        'country',      # Highest priority: same country (from ISRC)
+        'genre',        # Second priority: same genre
+        'region',       # Third priority: same region
+        'popularity',   # Fourth priority: similar popularity
+        'recency'       # Fifth priority: similar release date
+    ],
+    'CONFIDENCE_THRESHOLDS': {
+        'high': 0.9,    # High confidence (ISRC available)
+        'medium': 0.6,  # Medium confidence (genre match)
+        'low': 0.3      # Low confidence (no ISRC)
+    }
+}
+
+# Recommendation System Configuration
+RECOMMENDATION_CONFIG = {
+    'DIVERSITY': {
+        'max_same_artist': 5,       # Maximum tracks from same artist
+        'country_ratio': 0.6,       # 60% tracks from same country
+        'region_ratio': 0.8,        # 80% tracks from same region
+        'genre_consistency': True,  # Maintain genre consistency
+    },
+    'WEIGHTS': {
+        'same_artist': 0.85,        # Same artist weight
+        'same_country': 0.75,       # Same country weight
+        'genre_similarity': 0.60,   # Genre similarity weight
+        'same_region': 0.40,        # Same region weight
+        'popularity': 0.30,         # Popularity weight
+        'artist_popularity': 0.20,  # Artist popularity weight
+        'release_recency': 0.15,    # Release recency weight
+        'duration_similarity': 0.05 # Duration similarity weight
+    }
+}
