@@ -22,25 +22,31 @@ os.makedirs(RAW_DATA_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-# Content features - CHỈ SỬ DỤNG REAL METADATA
+# ✅ ALIGNED với actual data processor output
 CONTENT_FEATURES = [
-    # Real Spotify metadata features only
-    'popularity', 'duration_ms', 'explicit', 'release_year',
-    'artist_popularity', 'total_tracks', 'track_number', 'disc_number',
-    'markets_count', 'album_type_encoded', 'duration_category_encoded',
-    'popularity_category_encoded', 'is_vietnamese', 'is_korean', 
-    'is_japanese', 'is_spanish', 'has_collab', 'is_remix',
-    'name_length', 'artist_frequency_norm'
-    # LOẠI BỎ: 'danceability', 'energy', 'valence', 'tempo', etc.
+    # ✅ Basic Spotify metadata
+    'popularity', 'duration_ms', 'explicit', 'release_year', 'track_age',
+    'artist_popularity', 'markets_count', 'market_penetration',
+    
+    # ✅ ISRC-based cultural intelligence  
+    'music_culture', 'isrc_country', 'cultural_confidence',
+    'is_vietnamese', 'is_korean', 'is_japanese', 'is_chinese', 'is_western', 'is_spanish',
+    'is_major_label', 'is_global_release', 'is_regional_release', 'is_local_release',
+    
+    # ✅ Genre features (dynamic based on actual data)
+    'genre_pop', 'genre_rock', 'genre_hip_hop', 'genre_electronic', 'genre_ballad',
+    
+    # ✅ Normalized features for ML
+    'popularity_norm', 'artist_popularity_norm', 'duration_norm'
 ]
 
-# Cài đặt thu thập dữ liệu
-DEFAULT_TRACKS_PER_QUERY = 100  # Số lượng bài hát mặc định cho mỗi truy vấn
-MAX_TRACKS_PER_QUERY = 800     # Giới hạn tối đa số bài hát mỗi truy vấn
-MIN_TRACKS_PER_QUERY = 5       # Giới hạn tối thiểu số bài hát mỗi truy vấn
-TRACKS_QUERY_STEP = 5          # Bước nhảy cho thanh trượt
+# Data collection settings
+DEFAULT_TRACKS_PER_QUERY = 100
+MAX_TRACKS_PER_QUERY = 300     # ✅ Reduced for realistic API limits
+MIN_TRACKS_PER_QUERY = 50      # ✅ Minimum for decent diversity
+TRACKS_QUERY_STEP = 25
 
-# Cài đặt cho bộ dữ liệu lớn
-LARGE_DATASET_DEFAULT_SIZE = 20000  # Kích thước mặc định cho tập dữ liệu lớn
-LARGE_DATASET_BATCH_SIZE = 200      # Số lượng truy vấn mỗi lô
-LARGE_DATASET_SAVE_INTERVAL = 2500  # Lưu sau mỗi bao nhiêu bài hát
+# Large dataset settings
+LARGE_DATASET_DEFAULT_SIZE = 5000   # ✅ More realistic target
+LARGE_DATASET_BATCH_SIZE = 100      # ✅ Reasonable batch size
+LARGE_DATASET_SAVE_INTERVAL = 1000  # ✅ Save more frequently
