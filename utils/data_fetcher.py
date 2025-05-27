@@ -24,7 +24,7 @@ class SpotifyDataFetcher:
             if not self.client_id or not self.client_secret:
                 raise ValueError("Spotify client ID and secret are required")
             
-            # Initialize Spotify client with authentication
+            # Initialize Spotify client
             client_credentials_manager = SpotifyClientCredentials(
                 client_id=self.client_id,
                 client_secret=self.client_secret
@@ -54,7 +54,7 @@ class SpotifyDataFetcher:
             # Album info
             album = track.get('album', {})
             
-            # ✅ CRITICAL: ISRC and market data
+            # ✅ ISRC and market data
             external_ids = track.get('external_ids', {})
             available_markets = track.get('available_markets', [])
             
@@ -64,18 +64,13 @@ class SpotifyDataFetcher:
                 'name': name,
                 'artist': ', '.join(artist_names),
                 'artist_id': artist_ids[0] if artist_ids else None,
-                'artist_ids': '|'.join(artist_ids),  # All artist IDs
                 'album': album.get('name', ''),
-                'album_type': album.get('album_type', ''),
-                'total_tracks': album.get('total_tracks', 1),
                 'popularity': track.get('popularity', 0),
                 'duration_ms': track.get('duration_ms', 0),
-                'explicit': track.get('explicit', False),
                 'release_date': album.get('release_date', ''),
-                'release_date_precision': album.get('release_date_precision', 'year'),
-                # ✅ ISRC-based intelligence data
-                'isrc': external_ids.get('isrc', ''),  # CRITICAL for cultural classification
-                'available_markets': '|'.join(available_markets),  # CRITICAL for regional analysis
+                # ✅ CRITICAL: ISRC for cultural intelligence
+                'isrc': external_ids.get('isrc', ''),
+                'available_markets': '|'.join(available_markets),
                 'markets_count': len(available_markets),
             }
             
@@ -83,26 +78,13 @@ class SpotifyDataFetcher:
             logger.warning(f"Error extracting track data: {e}")
             return None
 
-    def _should_include_track(self, track):
-        """Filter unwanted tracks"""
-        name = track.get('name', '').lower()
-        
-        # Skip karaoke, instrumental, remix versions
-        unwanted_patterns = [
-            'karaoke', 'instrumental', 'live', 'remix', 'remaster', 
-            'radio edit', 'extended', 'clean version', 'explicit version'
-        ]
-        
-        return not any(pattern in name for pattern in unwanted_patterns)
-
-    def search_tracks_by_query(self, query, limit=50, market='US'):
-        """Search tracks by query with ISRC and market data"""
+    def search_tracks_by_query(self, query, limit=50):
+        """Search tracks by query"""
         all_tracks = []
         
         try:
-            # Spotify returns max 50 per request, max 1000 total
             offset = 0
-            max_requests = min(20, (limit + 49) // 50)  # Max 20 requests
+            max_requests = min(20, (limit + 49) // 50)
             
             for _ in range(max_requests):
                 search_limit = min(50, limit - len(all_tracks))
@@ -113,23 +95,21 @@ class SpotifyDataFetcher:
                     q=query, 
                     type='track', 
                     limit=search_limit, 
-                    offset=offset,
-                    market=market
+                    offset=offset
                 )
                 
                 tracks = results['tracks']['items']
                 
                 for track in tracks:
-                    if self._should_include_track(track):
-                        track_data = self._extract_track_data(track)
-                        if track_data:
-                            all_tracks.append(track_data)
+                    track_data = self._extract_track_data(track)
+                    if track_data:
+                        all_tracks.append(track_data)
                 
                 if len(tracks) < search_limit:
                     break
                     
                 offset += search_limit
-                time.sleep(0.1)  # Rate limiting
+                time.sleep(0.1)
         
         except Exception as e:
             logger.error(f"Error searching tracks: {e}")
@@ -143,8 +123,6 @@ class SpotifyDataFetcher:
             return {}
         
         artist_details = {}
-        
-        # Remove duplicates while preserving order
         unique_ids = list(dict.fromkeys(artist_ids))
         
         try:
@@ -162,7 +140,7 @@ class SpotifyDataFetcher:
                             'followers': artist.get('followers', {}).get('total', 0)
                         }
                 
-                time.sleep(0.1)  # Rate limiting
+                time.sleep(0.1)
                 
         except Exception as e:
             logger.error(f"Error fetching artist details: {e}")
@@ -170,33 +148,11 @@ class SpotifyDataFetcher:
         return artist_details
 
     def create_diverse_dataset(self, tracks_per_category=100):
-        """Create diverse dataset with cultural and genre variety"""
-        
-        # ✅ DIVERSE QUERIES for cultural representation
+        """Create diverse dataset"""
         search_queries = [
-            # Vietnamese
-            'vpop', 'vietnam music', 'vietnamese songs',
-            
-            # Korean  
-            'kpop', 'korean music', 'bts', 'blackpink', 'twice',
-            
-            # Japanese
-            'jpop', 'japanese music', 'anime music',
-            
-            # Chinese
-            'cpop', 'mandarin music', 'chinese songs',
-            
-            # Western
-            'pop music', 'rock music', 'hip hop', 'electronic',
-            
-            # Spanish/Latin
-            'reggaeton', 'latin music', 'spanish songs',
-            
-            # Popular global
-            'top hits', 'trending music', 'viral songs',
-            
-            # Genre diversity
-            'indie music', 'folk music', 'jazz', 'classical crossover'
+            'pop music', 'rock music', 'hip hop', 'electronic music',
+            'kpop', 'korean music', 'japanese music', 'vietnamese music',
+            'spanish music', 'latin music', 'top hits', 'trending music'
         ]
         
         all_tracks = []
@@ -206,9 +162,9 @@ class SpotifyDataFetcher:
         for query in tqdm(search_queries, desc="Fetching categories"):
             tracks = self.search_tracks_by_query(query, limit=tracks_per_category)
             all_tracks.extend(tracks)
-            time.sleep(0.5)  # Be nice to API
+            time.sleep(0.5)
         
-        # Remove duplicates based on track ID
+        # Remove duplicates
         unique_tracks = {}
         for track in all_tracks:
             if track['id'] not in unique_tracks:
@@ -232,18 +188,15 @@ class SpotifyDataFetcher:
             # Convert to DataFrame
             df = pd.DataFrame(tracks_data)
             
-            # Get unique artist IDs for genre fetching
-            all_artist_ids = []
-            for ids_str in df['artist_ids'].dropna():
-                all_artist_ids.extend(ids_str.split('|'))
-            unique_artist_ids = list(set(all_artist_ids))
+            # Get artist IDs for genre fetching
+            all_artist_ids = df['artist_id'].dropna().unique().tolist()
             
-            logger.info(f"Fetching details for {len(unique_artist_ids)} unique artists...")
+            logger.info(f"Fetching details for {len(all_artist_ids)} unique artists...")
             
             # Fetch artist details
-            artist_details = self.fetch_artist_details(unique_artist_ids)
+            artist_details = self.fetch_artist_details(all_artist_ids)
             
-            # Add artist popularity to tracks
+            # Add artist popularity
             def get_artist_popularity(artist_id):
                 return artist_details.get(artist_id, {}).get('popularity', 50)
             
@@ -254,7 +207,7 @@ class SpotifyDataFetcher:
             tracks_path = os.path.join(RAW_DATA_DIR, filename)
             df.to_csv(tracks_path, index=False)
             
-            # Save artist genres separately
+            # Save artist genres
             artist_genres = []
             for artist_id, details in artist_details.items():
                 artist_genres.append({
@@ -269,14 +222,12 @@ class SpotifyDataFetcher:
                 genres_df = pd.DataFrame(artist_genres)
                 genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
                 genres_df.to_csv(genres_path, index=False)
-                logger.info(f"Saved {len(artist_genres)} artist genres to {genres_path}")
+                logger.info(f"Saved {len(artist_genres)} artist genres")
             
-            # Log data summary
+            # Log summary
             logger.info(f"Dataset saved successfully:")
-            logger.info(f"  Tracks: {len(df)} in {tracks_path}")
-            logger.info(f"  Unique artists: {len(unique_artist_ids)}")
+            logger.info(f"  Tracks: {len(df)}")
             logger.info(f"  ISRC coverage: {(df['isrc'] != '').sum()}/{len(df)} ({(df['isrc'] != '').sum()/len(df)*100:.1f}%)")
-            logger.info(f"  Avg markets per track: {df['markets_count'].mean():.1f}")
             
             return True
             
@@ -296,7 +247,6 @@ def fetch_initial_dataset(tracks_per_query=50):
 
 
 if __name__ == "__main__":
-    # Test the fetcher
     success = fetch_initial_dataset(tracks_per_query=100)
     if success:
         print("✅ Dataset fetched successfully!")
