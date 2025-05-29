@@ -114,7 +114,7 @@ class SpotifyDataFetcher:
                     break
                     
                 offset += search_limit
-                time.sleep(0.1)
+                time.sleep(0.05)
         
         except Exception as e:
             logger.error(f"Error searching tracks: {e}")
@@ -138,7 +138,6 @@ class SpotifyDataFetcher:
                 
                 for artist in artists_data:
                     if artist:
-                        # Cải thiện: Thu thập thêm thông tin followers
                         artist_details[artist['id']] = {
                             'name': artist.get('name', ''),
                             'genres': artist.get('genres', []),
@@ -148,7 +147,7 @@ class SpotifyDataFetcher:
                             'has_image': len(artist.get('images', [])) > 0
                         }
                 
-                time.sleep(0.1)
+                time.sleep(0.05)
                 
         except Exception as e:
             logger.error(f"Error fetching artist details: {e}")
@@ -158,16 +157,27 @@ class SpotifyDataFetcher:
     def create_diverse_dataset(self, tracks_per_category=100):
         """Create diverse dataset"""
         base_queries = [
+            # Global
+            'Spotify Global Top 50',
+            'Apple Music Top 100',
+            'YouTube Music Charts',
+            'MTV Music Awards',
+            'iHeartRadio Music Awards',
+
+            # US-UK
             'Billboard Hot 100',
             'Grammy Award winners',
             'top usuk songs',
-            'UK Top 40', 'American Top 40',
+            'UK Top 40',
+            'American Top 40',
             'Brit Awards',
 
+            # Japan
             'J-Pop top chart',
             'Oricon Chart',
             'Japanese music awards',
 
+            # Vietnam
             'Vietnamese music',
             'top Vietnamese songs',
             'Vietnamese indie',
@@ -175,19 +185,29 @@ class SpotifyDataFetcher:
             'Làn Sóng Xanh',
             'Vietnamese rap',
 
-            'US rap', 'UK rap', 'Japanese rap',
+            # Rap
+            'US rap',
+            'UK rap',
 
-            'C-Pop', 'Mandarin pop', 'Chinese top songs',
+            # China
+            'C-Pop',
+            'Mandarin pop',
+            'Chinese top songs',
 
-            'K-Pop', 'MAMA Awards', 'Melon Top 100',
-            'Golden Disc Awards', 'Gaon Chart',
+            # Korea
+            'K-Pop',
+            'MAMA Awards',
+            'Melon Top 100',
+            'Golden Disc Awards',
+            'Gaon Chart',
 
-            'top EDM songs', 'EDM festival anthems',
-            'Ultra Music Festival', 'Tomorrowland hits'
+            # EDM
+            'top EDM songs',
         ]
+
         
 
-        years = list(range(2010, 2026))  # 2010 ~ 2025
+        years = list(range(2010, 2025))  # 2010 ~ 2025
 
         # Kết hợp từng query với từng năm
         search_queries = [f"{query} {year}" for query in base_queries for year in years]
@@ -201,7 +221,7 @@ class SpotifyDataFetcher:
         for query in tqdm(search_queries, desc="Fetching categories"):
             tracks = self.search_tracks_by_query(query, limit=tracks_per_category)
             all_tracks.extend(tracks)
-            time.sleep(0.5)
+            time.sleep(0.1)
         
         # Remove duplicates
         unique_tracks = {}
@@ -213,6 +233,46 @@ class SpotifyDataFetcher:
         logger.info(f"Created diverse dataset: {len(final_tracks)} unique tracks")
         
         return final_tracks
+
+    def process_track_data(self, track_data):
+        """Process track data from API response"""
+        processed_tracks = []
+        
+        for item in track_data:
+            track = item.get('track', item)
+            if not track or not track.get('id'):
+                continue
+            
+            # Extract basic track info
+            track_info = {
+                'id': track.get('id'),
+                'name': track.get('name', ''),
+                'popularity': track.get('popularity', 0),
+                'duration_ms': track.get('duration_ms', 0),
+                'explicit': int(track.get('explicit', False)),
+                'isrc': track.get('external_ids', {}).get('isrc', ''),
+                
+                'markets_count': len(track.get('available_markets', [])),
+
+                'artist_id': track.get('artists', [{}])[0].get('id', ''),
+                'artist': track.get('artists', [{}])[0].get('name', ''),
+                'album': track.get('album', {}).get('name', ''),
+                'album_id': track.get('album', {}).get('id', ''),
+                'release_date': track.get('album', {}).get('release_date', ''),
+            }
+            
+            # Tính market_penetration
+            max_markets = 200  # Ước tính tổng số thị trường Spotify
+            track_info['market_penetration'] = track_info['markets_count'] / max_markets
+            
+            # Thêm các đặc trưng phân loại phát hành
+            track_info['is_global_release'] = int(track_info['markets_count'] > 100)
+            track_info['is_regional_release'] = int(track_info['markets_count'] > 20 and track_info['markets_count'] <= 100)
+            track_info['is_local_release'] = int(track_info['markets_count'] <= 20)
+            
+            processed_tracks.append(track_info)
+        
+        return processed_tracks
 
     def fetch_and_save_dataset(self, filename='tracks.csv', tracks_per_category=100):
         """Fetch and save complete dataset"""
@@ -241,37 +301,34 @@ class SpotifyDataFetcher:
             
             df['artist_popularity'] = df['artist_id'].apply(get_artist_popularity)
             
-            # Save tracks data
+            # Save to CSV
             os.makedirs(RAW_DATA_DIR, exist_ok=True)
-            tracks_path = os.path.join(RAW_DATA_DIR, filename)
-            df.to_csv(tracks_path, index=False)
+            output_path = os.path.join(RAW_DATA_DIR, filename)
+            df.to_csv(output_path, index=False, encoding='utf-8')
             
-            # Save artist genres
+            logger.info(f"Saved {len(df)} tracks to {output_path}")
+            
+            # Save artist genres separately
             artist_genres = []
             for artist_id, details in artist_details.items():
-                artist_genres.append({
-                    'artist_id': artist_id,
-                    'artist': details['name'],
-                    'genres': ', '.join(details['genres']),
-                    'artist_popularity': details['popularity'],
-                    'artist_followers': details['followers']
-                })
+                if 'genres' in details and details['genres']:
+                    artist_genres.append({
+                        'artist_id': artist_id,
+                        'artist_name': details.get('name', ''),
+                        'genres': '|'.join(details.get('genres', [])),
+                        'popularity': details.get('popularity', 0)
+                    })
             
             if artist_genres:
                 genres_df = pd.DataFrame(artist_genres)
                 genres_path = os.path.join(RAW_DATA_DIR, 'artist_genres.csv')
-                genres_df.to_csv(genres_path, index=False)
-                logger.info(f"Saved {len(artist_genres)} artist genres")
-            
-            # Log summary
-            logger.info(f"Dataset saved successfully:")
-            logger.info(f"  Tracks: {len(df)}")
-            logger.info(f"  ISRC coverage: {(df['isrc'] != '').sum()}/{len(df)} ({(df['isrc'] != '').sum()/len(df)*100:.1f}%)")
+                genres_df.to_csv(genres_path, index=False, encoding='utf-8')
+                logger.info(f"Saved {len(genres_df)} artist genres to {genres_path}")
             
             return True
             
         except Exception as e:
-            logger.error(f"Error fetching and saving dataset: {e}")
+            logger.error(f"Error fetching dataset: {e}")
             return False
 
 

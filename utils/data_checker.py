@@ -82,16 +82,93 @@ def check_cultural_intelligence(tracks_df):
     
     return cultural_score >= 3
 
-def check_data_completeness():
-    """Comprehensive data completeness check for recommendation system"""
-    print("CHECKING DATA COMPLETENESS FOR RECOMMENDATION SYSTEM")
-    print("=" * 60)
+def check_genre_features(tracks_df):
+    """Check genre features in dataset"""
+    print("\nGENRE FEATURES ANALYSIS:")
     
-    # 1. ✅ Check actual raw data files from data_fetcher.py
+    if tracks_df is None:
+        print("  [ERROR] No tracks data available")
+        return False
+    
+    # Check genre columns
+    genre_columns = [col for col in tracks_df.columns if col.startswith('genre_')]
+    genre_count = len(genre_columns)
+    
+    if genre_count == 0:
+        print("  [ERROR] No genre features found")
+        return False
+    
+    print(f"  [{'OK' if genre_count >= 20 else 'WARN'}] Genre features: {genre_count} features")
+    
+    # Check top genres by coverage
+    genre_coverage = {}
+    for genre in genre_columns:
+        count = tracks_df[genre].sum()
+        coverage = count / len(tracks_df)
+        genre_coverage[genre] = (count, coverage)
+    
+    # Sort by coverage
+    top_genres = sorted(genre_coverage.items(), key=lambda x: x[1][0], reverse=True)[:10]
+    
+    print("  Top 10 genres by track count:")
+    for genre, (count, coverage) in top_genres:
+        print(f"    - {genre[6:]}: {count:,} tracks ({coverage*100:.1f}%)")
+    
+    # Check regional genre coverage
+    regional_genres = {
+        'asian': ['korean', 'japanese', 'chinese', 'vietnamese', 'thai', 'mandopop', 'cantopop', 'j_pop', 'k_pop', 'v_pop'],
+        'western': ['pop', 'rock', 'hip_hop', 'rap', 'edm', 'dance', 'electronic', 'r_b', 'indie'],
+        'latin': ['latin', 'reggaeton', 'salsa', 'bachata', 'spanish', 'mexican']
+    }
+    
+    print("\n  Regional genre coverage:")
+    for region, keywords in regional_genres.items():
+        region_cols = [col for col in genre_columns if any(kw in col for kw in keywords)]
+        if region_cols:
+            region_tracks = tracks_df[region_cols].any(axis=1).sum()
+            region_coverage = region_tracks / len(tracks_df)
+            print(f"    - {region.title()}: {region_tracks:,} tracks ({region_coverage*100:.1f}%) from {len(region_cols)} genres")
+        else:
+            print(f"    - {region.title()}: No genres found")
+    
+    # Overall genre quality assessment
+    genre_score = 0
+    max_genre_score = 5
+    
+    if genre_count >= 50: genre_score += 2
+    elif genre_count >= 20: genre_score += 1
+    
+    # Check if we have good coverage of top genres
+    top_coverage = sum(coverage for _, (_, coverage) in top_genres[:5])
+    if top_coverage >= 0.5: genre_score += 1
+    
+    # Check if we have regional diversity
+    regions_with_genres = sum(1 for region, keywords in regional_genres.items() 
+                             if any(kw in col for col in genre_columns for kw in keywords))
+    if regions_with_genres >= 2: genre_score += 1
+    
+    # Check if we have at least one genre with high coverage
+    if any(coverage >= 0.1 for _, (_, coverage) in top_genres): genre_score += 1
+    
+    print(f"\n  GENRE FEATURES SCORE: {genre_score}/{max_genre_score}")
+    if genre_score >= 4:
+        print("  [EXCELLENT] Rich genre features ready for recommendations")
+    elif genre_score >= 3:
+        print("  [GOOD] Adequate genre features available")
+    else:
+        print("  [POOR] Limited genre features, needs improvement")
+    
+    return genre_score >= 3
+
+def check_data_completeness():
+    """Check data completeness and quality"""
+    print("\nDATA COMPLETENESS CHECK:")
+    
+    # 1. Check raw data files
     print("\nRAW DATA FILES:")
     raw_files = {
-        'tracks.csv': 'Track metadata from Spotify API with ISRC',  # ✅ Actual filename
-        'artist_genres.csv': 'Artist genres and popularity data'    # ✅ Actual filename
+        'tracks.csv': 'Main tracks data with Spotify metadata and markets_count',
+        'artist_genres.csv': 'Artist genres data'
     }
     
     raw_data_status = {}
@@ -364,11 +441,31 @@ def check_data_completeness():
     
     # Check 6: Genre features
     genre_count = len([col for col in tracks_df.columns if col.startswith('genre_')]) if tracks_df is not None else 0
-    if genre_count >= 5:
+    if genre_count >= 20:  # Adjusted threshold from 5 to 20 since we now expect up to 100 genres
         print(f"  [OK] Good genre feature coverage: {genre_count} genre features")
         readiness_score += 1
+    elif genre_count >= 10:  # Add intermediate level
+        print(f"  [PARTIAL] Basic genre feature coverage: {genre_count} genre features")
+        readiness_score += 0.5
     else:
-        print(f"  [FAIL] Insufficient genre features: {genre_count} (minimum: 5)")
+        print(f"  [FAIL] Insufficient genre features: {genre_count} (minimum: 10)")
+    
+    # Add check for genre diversity
+    if tracks_df is not None:
+        genre_columns = [col for col in tracks_df.columns if col.startswith('genre_')]
+        if genre_columns:
+            # Count tracks with at least one genre
+            tracks_with_genres = tracks_df[genre_columns].any(axis=1).sum()
+            genre_coverage = tracks_with_genres / len(tracks_df)
+            
+            if genre_coverage >= 0.7:
+                print(f"  [OK] Excellent genre coverage: {tracks_with_genres:,} tracks ({genre_coverage*100:.1f}%)")
+                readiness_score += 1
+            elif genre_coverage >= 0.4:
+                print(f"  [PARTIAL] Moderate genre coverage: {tracks_with_genres:,} tracks ({genre_coverage*100:.1f}%)")
+                readiness_score += 0.5
+            else:
+                print(f"  [WARN] Poor genre coverage: {tracks_with_genres:,} tracks ({genre_coverage*100:.1f}%)")
     
     # Check 7: Market penetration features
     market_features = ['market_penetration', 'markets_count']
@@ -437,6 +534,12 @@ def check_data_completeness():
             print(f"  - Run data processor to create normalized ML features")
     
     print(f"\n✅ Ready to train WeightedContentRecommender and EnhancedContentRecommender!")
+    
+    # Add detailed genre analysis if needed
+    if tracks_df is not None and check_genre_features(tracks_df):
+        print("  [OK] Genre features analysis passed")
+    else:
+        print("  [WARN] Genre features analysis failed or incomplete")
     
     return {
         'readiness_score': readiness_score,
