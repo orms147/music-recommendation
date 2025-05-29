@@ -354,10 +354,10 @@ def check_data_status():
         # Check raw data
         if os.path.exists(raw_tracks):
             raw_df = pd.read_csv(raw_tracks)
-            status_lines.append(f"✅ **Raw data:** {len(raw_df):,} tracks")
+            status_lines.append(f"**Raw data:** {len(raw_df):,} tracks")
             score += 1
         else:
-            status_lines.append("❌ **Raw data:** Not found")
+            status_lines.append("**Raw data:** Not found")
         
         # Check processed data
         if os.path.exists(processed_tracks):
@@ -384,11 +384,22 @@ def check_data_status():
             
             # Check genre features
             genre_features = [col for col in processed_df.columns if col.startswith('genre_')]
-            if len(genre_features) >= 3:
+            if len(genre_features) >= 20:  # Adjusted threshold from 3 to 20
                 status_lines.append(f"✅ **Genre features:** {len(genre_features)} types")
                 score += 1
+                
+                # Add top genres information
+                if len(genre_features) > 0:
+                    # Get top 5 genres by count
+                    genre_counts = {}
+                    for genre in genre_features:
+                        genre_counts[genre[6:]] = processed_df[genre].sum()  # Remove 'genre_' prefix
+                    
+                    top_genres = sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+                    top_genres_str = ", ".join([f"{genre} ({count})" for genre, count in top_genres])
+                    status_lines.append(f"📊 **Top genres:** {top_genres_str}")
             else:
-                status_lines.append("⚠️ **Genre features:** Limited")
+                status_lines.append(f"⚠️ **Genre features:** Limited ({len(genre_features)} types)")
         else:
             status_lines.append("❌ **Processed data:** Not found")
         
