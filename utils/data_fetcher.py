@@ -6,7 +6,8 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from config.config import (
     SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, RAW_DATA_DIR,
-    DEFAULT_TRACKS_PER_QUERY, LARGE_DATASET_BATCH_SIZE, LARGE_DATASET_SAVE_INTERVAL
+    DEFAULT_TRACKS_PER_QUERY, LARGE_DATASET_BATCH_SIZE, LARGE_DATASET_SAVE_INTERVAL,
+    MAX_TRACKS_PER_QUERY 
 )
 from tqdm import tqdm
 
@@ -154,45 +155,73 @@ class SpotifyDataFetcher:
         
         return artist_details
 
-    def create_diverse_dataset(self, tracks_per_category=100):
+    def create_diverse_dataset(self, tracks_per_category=150):
         """Create diverse dataset"""
+        actual_tracks_per_category = min(tracks_per_category, MAX_TRACKS_PER_QUERY)
+        
         base_queries = [
             # Global
             'Spotify Global Top 50',
+            'Spotify Viral 50 Global',
             'Apple Music Top 100',
             'YouTube Music Charts',
+            'Deezer Global Chart',
+            'Shazam Global Top 200',
+            'IFPI Global Artist Chart',
+            'Global Digital Song Sales',
+            'World Music Awards',
             'MTV Music Awards',
             'iHeartRadio Music Awards',
 
             # US-UK
             'Billboard Hot 100',
-            'Grammy Award winners',
-            'top usuk songs',
+            'Rolling Stone Top 100 Songs',
+            'Spotify US Top 50',
+            'Hot Rock & Alternative Songs',
+            'BBC Radio 1 Official Chart',
+            'Vevo Top US-UK',
             'UK Top 40',
             'American Top 40',
+            'Grammy Award winners',
             'Brit Awards',
+            'American Music Awards',
 
             # Japan
             'J-Pop top chart',
             'Oricon Chart',
+            'Billboard Japan Hot 100',
+            'RecoChoku Weekly Chart',
+            'AWA Japan Top 100',
+            'Line Music Japan Ranking',
+            'J-Wave Tokio Hot 100',
+            'FNS Music Festival',
+            'NHK Kōhaku Uta Gassen',
             'Japanese music awards',
 
             # Vietnam
             'Vietnamese music',
             'top Vietnamese songs',
             'Vietnamese indie',
+            'Vietnamese rap',
             'Zing Chart',
             'Làn Sóng Xanh',
-            'Vietnamese rap',
-
-            # Rap
-            'US rap',
-            'UK rap',
+            'Spotify Vietnam Top 50',
+            'NhacCuaTui BXH',
+            'Keeng Music BXH',
+            'YouTube Vietnam Trending Music',
+            'Lofi Việt trending',
+            'Nhạc Trẻ Top Hits',
+            'Nhạc Vàng Yêu Thích',
 
             # China
             'C-Pop',
             'Mandarin pop',
             'Chinese top songs',
+            'QQ Music Top Charts',
+            'NetEase Cloud Music Hot Songs',
+            'Sina Weibo Music Chart',
+            'Douyin Hot Music',
+            'Tencent Music Awards',
 
             # Korea
             'K-Pop',
@@ -200,10 +229,30 @@ class SpotifyDataFetcher:
             'Melon Top 100',
             'Golden Disc Awards',
             'Gaon Chart',
+            'Spotify Korea Top 50',
+            'Circle Digital Chart',
+            'SBS Inkigayo Chart',
+            'Show! Music Core Chart',
+            'M Countdown Chart',
 
-            # EDM
+            # Rap / Hip-Hop
+            'US rap',
+            'UK rap',
+            'Spotify Rap Caviar',
+            'Apple Music Rap Life',
+            'Hot 97 Playlist',
+            'UK Grime & Rap Playlist',
+            'Rap Viet Top Hits',
+
+            # EDM / Electronic
             'top EDM songs',
+            'Spotify Mint',
+            'Tomorrowland Official Playlist',
+            'Trap Nation Top Tracks',
+            'Beatport Top 100',
+            'Ultra Music Festival Playlist',
         ]
+
 
         
 
@@ -216,10 +265,10 @@ class SpotifyDataFetcher:
         
         all_tracks = []
         
-        logger.info(f"Fetching diverse dataset with {len(search_queries)} categories...")
+        logger.info(f"Fetching diverse dataset with {len(search_queries)} categories, {actual_tracks_per_category} tracks per category (limit enforced by MAX_TRACKS_PER_QUERY={MAX_TRACKS_PER_QUERY})...")
         
         for query in tqdm(search_queries, desc="Fetching categories"):
-            tracks = self.search_tracks_by_query(query, limit=tracks_per_category)
+            tracks = self.search_tracks_by_query(query, limit=actual_tracks_per_category) # <<< SỬ DỤNG GIÁ TRỊ ĐÃ GIỚI HẠN
             all_tracks.extend(tracks)
             time.sleep(0.1)
         
