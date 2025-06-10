@@ -5,6 +5,7 @@ import pandas as pd
 import gradio as gr
 from pathlib import Path
 from dotenv import load_dotenv
+import time # Added for cache-busting
 
 from config.config import (
     RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR,
@@ -16,6 +17,7 @@ from utils.data_fetcher import fetch_initial_dataset
 from utils.data_processor import DataProcessor
 from models.enhanced_content_model import EnhancedContentRecommender
 from models.weighted_content_model import WeightedContentRecommender
+from models.visualization import save_comparison_visualization
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -32,15 +34,19 @@ def initialize_model():
     """Initialize models on app startup"""
     global model, weighted_model
     
-    # ✅ Fixed file paths aligned with actual data structure
-    model_path = os.path.join(MODELS_DIR, 'enhanced_content_recommender.pkl')
-    weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
+    saved_models_dir_path = os.path.join(MODELS_DIR, 'saved') # Đường dẫn đến thư mục 'saved'
+    model_path = os.path.join(saved_models_dir_path, 'enhanced_content_recommender.pkl')
+    weighted_model_path = os.path.join(saved_models_dir_path, 'weighted_content_recommender.pkl')
 
     # EnhancedContentRecommender
     if os.path.exists(model_path):
         try:
             model = EnhancedContentRecommender.load(model_path)
-            logger.info(f"Loaded EnhancedContentRecommender from {model_path}")
+            if model: # Kiểm tra xem model có được tải thành công không
+                logger.info(f"Loaded EnhancedContentRecommender from {model_path}")
+            else:
+                logger.error(f"Failed to load EnhancedContentRecommender from {model_path}. Model is None.")
+                model = None # Đảm bảo model là None nếu tải lỗi
         except Exception as e:
             logger.error(f"Error loading enhanced model: {e}")
             model = None
@@ -49,7 +55,11 @@ def initialize_model():
     if os.path.exists(weighted_model_path):
         try:
             weighted_model = WeightedContentRecommender.load(weighted_model_path)
-            logger.info(f"Loaded WeightedContentRecommender from {weighted_model_path}")
+            if weighted_model: # Kiểm tra xem model có được tải thành công không
+                logger.info(f"Loaded WeightedContentRecommender from {weighted_model_path}")
+            else:
+                logger.error(f"Failed to load WeightedContentRecommender from {weighted_model_path}. Model is None.")
+                weighted_model = None # Đảm bảo model là None nếu tải lỗi
         except Exception as e:
             logger.error(f"Error loading weighted model: {e}")
             weighted_model = None
@@ -150,9 +160,11 @@ def train_model():
     global model, weighted_model
     
     try:
-        # ✅ Fixed file paths
-        enhanced_model_path = os.path.join(MODELS_DIR, 'enhanced_content_recommender.pkl')
-        weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
+        saved_models_dir_path = os.path.join(MODELS_DIR, 'saved') # Đường dẫn đến thư mục 'saved'
+        os.makedirs(saved_models_dir_path, exist_ok=True) # Đảm bảo thư mục 'saved' tồn tại
+
+        enhanced_model_path = os.path.join(saved_models_dir_path, 'enhanced_content_recommender.pkl')
+        weighted_model_path = os.path.join(saved_models_dir_path, 'weighted_content_recommender.pkl')
         processed_path = os.path.join(PROCESSED_DATA_DIR, 'processed_tracks.csv')
 
         # Check data availability
@@ -174,7 +186,18 @@ def train_model():
         if os.path.exists(enhanced_model_path):
             logger.info("Loading existing EnhancedContentRecommender...")
             model = EnhancedContentRecommender.load(enhanced_model_path)
-            results.append("✅ EnhancedContentRecommender loaded")
+            if model and model.is_trained:
+                results.append("✅ EnhancedContentRecommender loaded")
+            else:
+                results.append("❌ EnhancedContentRecommender loading failed or not trained, retraining...")
+                model = EnhancedContentRecommender() # Tạo instance mới để huấn luyện lại
+                success = model.train(tracks_df)
+                if success:
+                    model.save(enhanced_model_path)
+                    results.append("✅ EnhancedContentRecommender retrained and saved")
+                else:
+                    results.append("❌ EnhancedContentRecommender retraining failed")
+                    model = None # Đặt là None nếu huấn luyện lại thất bại
         else:
             logger.info("Training new EnhancedContentRecommender...")
             model = EnhancedContentRecommender()
@@ -184,12 +207,24 @@ def train_model():
                 results.append("✅ EnhancedContentRecommender trained and saved")
             else:
                 results.append("❌ EnhancedContentRecommender training failed")
+                model = None
 
         # Train WeightedContentRecommender  
         if os.path.exists(weighted_model_path):
             logger.info("Loading existing WeightedContentRecommender...")
             weighted_model = WeightedContentRecommender.load(weighted_model_path)
-            results.append("✅ WeightedContentRecommender loaded")
+            if weighted_model and weighted_model.is_trained:
+                results.append("✅ WeightedContentRecommender loaded")
+            else:
+                results.append("❌ WeightedContentRecommender loading failed or not trained, retraining...")
+                weighted_model = WeightedContentRecommender() # Tạo instance mới để huấn luyện lại
+                success = weighted_model.train(tracks_df)
+                if success:
+                    weighted_model.save(weighted_model_path)
+                    results.append("✅ WeightedContentRecommender retrained and saved")
+                else:
+                    results.append("❌ WeightedContentRecommender retraining failed")
+                    weighted_model = None # Đặt là None nếu huấn luyện lại thất bại
         else:
             logger.info("Training new WeightedContentRecommender...")
             weighted_model = WeightedContentRecommender()
@@ -199,6 +234,7 @@ def train_model():
                 results.append("✅ WeightedContentRecommender trained and saved")
             else:
                 results.append("❌ WeightedContentRecommender training failed")
+                weighted_model = None
 
         # ✅ Feature quality analysis
         feature_analysis = []
@@ -340,6 +376,47 @@ def recommend_similar(song_name, artist_name="", n=10):
         logger.error(f"Recommendation error: {e}\n{traceback.format_exc()}")
         return f"❌ System error: {str(e)}"
 
+def compare_recommendation_models(song_name, artist_name="", n=10):
+    """Generate and display visual comparison between recommendation models"""
+    global model, weighted_model
+    
+    if model is None or not model.is_trained:
+        return "⚠️ EnhancedContentRecommender not trained. Please train models first."
+    if weighted_model is None or not weighted_model.is_trained:
+        return "⚠️ WeightedContentRecommender not trained. Please train models first."
+    
+    try:
+        # Generate visualization
+        output_path = save_comparison_visualization(
+            enhanced_model=model,
+            weighted_model=weighted_model,
+            track_name=song_name,
+            artist=artist_name,
+            n_recommendations=n,
+            output_path="static/model_comparison.png"
+        )
+        
+        if output_path:
+            return f"""
+**🔍 Model Comparison for "{song_name}" by {artist_name or "Unknown"}**
+
+Visualization created with the following metrics:
+1. **Độ chính xác của đề xuất**: So sánh sự trùng lặp giữa các bài hát được đề xuất
+2. **Đa dạng văn hóa**: Phân phối các nền văn hóa âm nhạc trong kết quả
+3. **Hiệu suất tìm kiếm**: Thời gian xử lý và độ tin cậy của mỗi mô hình
+4. **Độ phổ biến của bài hát**: Phân phối độ phổ biến trong các đề xuất
+5. **Cân bằng giữa tính phổ biến và tính liên quan**: Mối quan hệ giữa điểm số và độ phổ biến
+
+✅ Visualization saved to {output_path}
+"""
+        else:
+            return "❌ Failed to generate model comparison"
+            
+    except Exception as e:
+        import traceback
+        logger.error(f"Error comparing models: {e}\n{traceback.format_exc()}")
+        return f"❌ Comparison error: {str(e)}"
+
 def check_data_status():
     """Check data completeness and quality"""
     try:
@@ -404,15 +481,32 @@ def check_data_status():
             status_lines.append("❌ **Processed data:** Not found")
         
         # Check models
-        enhanced_model_path = os.path.join(MODELS_DIR, 'enhanced_content_recommender.pkl')
-        weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
+        saved_models_dir_path = os.path.join(MODELS_DIR, 'saved') # Đường dẫn đến thư mục 'saved'
+        enhanced_model_path = os.path.join(saved_models_dir_path, 'enhanced_content_recommender.pkl')
+        weighted_model_path = os.path.join(saved_models_dir_path, 'weighted_content_recommender.pkl')
         
-        if os.path.exists(enhanced_model_path) and os.path.exists(weighted_model_path):
-            status_lines.append("✅ **Models:** Both models available")
-        elif os.path.exists(enhanced_model_path) or os.path.exists(weighted_model_path):
-            status_lines.append("⚠️ **Models:** Partial availability")
+        models_available = 0
+        if os.path.exists(enhanced_model_path):
+            # Thử tải nhẹ để kiểm tra tính hợp lệ (tùy chọn, có thể làm chậm)
+            # temp_model = EnhancedContentRecommender.load(enhanced_model_path)
+            # if temp_model and temp_model.is_trained:
+            # models_available +=1
+            # else: logger.warning(f"Enhanced model file at {enhanced_model_path} might be corrupted or not trained.")
+            models_available +=1 # Giả định file tồn tại là đủ cho status này
+
+        if os.path.exists(weighted_model_path):
+            # temp_model_w = WeightedContentRecommender.load(weighted_model_path)
+            # if temp_model_w and temp_model_w.is_trained:
+            # models_available +=1
+            # else: logger.warning(f"Weighted model file at {weighted_model_path} might be corrupted or not trained.")
+            models_available +=1
+
+        if models_available == 2:
+            status_lines.append("✅ **Models:** Both model files available in 'saved' directory")
+        elif models_available == 1:
+            status_lines.append("⚠️ **Models:** Partial model files available in 'saved' directory")
         else:
-            status_lines.append("❌ **Models:** Not trained")
+            status_lines.append("❌ **Models:** Model files not found in 'saved' directory")
 
         # Overall status
         if score >= 4:
@@ -448,6 +542,13 @@ def create_ui():
     with gr.Blocks(title="Music Recommender - ISRC Cultural Intelligence", theme=gr.themes.Soft()) as app:
         gr.Markdown("# 🎵 Music Recommender - ISRC Cultural Intelligence")
         gr.Markdown("*Advanced recommendation system with ISRC-based cultural intelligence and Spotify metadata*")
+        
+        # Shared state for last recommendation
+        last_recommendation = gr.State({
+            "song": "",
+            "artist": "",
+            "has_recommendations": False
+        })
         
         with gr.Tab("🔧 Data Setup"):
             gr.Markdown("### Setup Dataset from Spotify API")
@@ -489,7 +590,86 @@ def create_ui():
             n_similar = gr.Slider(5, 20, value=10, step=1, label="📊 Number of Recommendations")
             rec_btn = gr.Button("🔍 Get Recommendations", variant="primary")
             rec_output = gr.Markdown()
-            rec_btn.click(fn=recommend_similar, inputs=[song_input, artist_input, n_similar], outputs=rec_output)
+            
+            # Update last recommendation state when recommendations are generated
+            def update_last_rec(song, artist, output):
+                return {"song": song, "artist": artist, "has_recommendations": True}
+            
+            rec_btn.click(
+                fn=recommend_similar, 
+                inputs=[song_input, artist_input, n_similar], 
+                outputs=rec_output
+            ).then(
+                fn=update_last_rec,
+                inputs=[song_input, artist_input, rec_output],
+                outputs=last_recommendation
+            )
+
+        model_comparison_tab = gr.Tab("📊 Model Comparison")
+        with model_comparison_tab:
+            gr.Markdown("### Compare Recommendation Models")
+            gr.Markdown("*Visual comparison of EnhancedContentRecommender and WeightedContentRecommender*")
+            
+            comparison_status_md = gr.Markdown("Select this tab after generating recommendations in the 'Recommendations' tab to see the model comparison.")
+            
+            comparison_image_display = gr.Image(
+                label="Model Comparison Visualization", 
+                visible=False,
+                interactive=False
+            )
+            
+            def display_comparison_on_tab_select(last_rec_state):
+                global model, weighted_model # Ensure access to global models
+                if not model or not weighted_model or not model.is_trained or not weighted_model.is_trained:
+                    return (
+                        "⚠️ Models are not trained or loaded. Please train models first from the 'Model Training' tab.",
+                        gr.Image.update(visible=False)
+                    )
+
+                if not last_rec_state["has_recommendations"]:
+                    return (
+                        "⚠️ Please generate recommendations first using the 'Recommendations' tab.", 
+                        gr.Image.update(visible=False)
+                    )
+                
+                song = last_rec_state["song"]
+                artist = last_rec_state["artist"]
+                
+                # Ensure the static directory exists
+                static_dir = "static"
+                os.makedirs(static_dir, exist_ok=True)
+                actual_save_path = os.path.join(static_dir, "model_comparison.png")
+
+                # Attempt to generate visualization
+                output_image_path = save_comparison_visualization(
+                    enhanced_model=model,
+                    weighted_model=weighted_model,
+                    track_name=song,
+                    artist=artist,
+                    n_recommendations=10, # Default or make configurable if needed
+                    output_path=actual_save_path
+                )
+                
+                if output_image_path:
+                    # Add cache buster to the image path for display
+                    display_path = f"{output_image_path}?v={time.time()}"
+                    return (
+                        f"✅ Model comparison for '{song}' by '{artist or 'Unknown'}' displayed below.", 
+                        gr.Image.update(value=display_path, visible=True)
+                    )
+                else:
+                    return (
+                        f"❌ Failed to generate model comparison for '{song}' by '{artist or 'Unknown'}'. Check logs for details.", 
+                        gr.Image.update(visible=False)
+                    )
+
+            model_comparison_tab.select(
+                fn=display_comparison_on_tab_select,
+                inputs=[last_recommendation],
+                outputs=[comparison_status_md, comparison_image_display]
+            )
+            
+            # The gr.HTML block with JavaScript is no longer needed and should be removed.
     
     return app
 
