@@ -5,7 +5,6 @@ import pandas as pd
 import gradio as gr
 from pathlib import Path
 from dotenv import load_dotenv
-import time # Added for cache-busting
 
 from config.config import (
     RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR,
@@ -17,7 +16,8 @@ from utils.data_fetcher import fetch_initial_dataset
 from utils.data_processor import DataProcessor
 from models.enhanced_content_model import EnhancedContentRecommender
 from models.weighted_content_model import WeightedContentRecommender
-from models.visualization import save_comparison_visualization
+from models.visualization import save_comparison_visualization # <<< THÊM IMPORT NÀY
+from datetime import datetime # <<< THÊM IMPORT NÀY
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -30,23 +30,24 @@ load_dotenv(dotenv_path=Path(__file__).parent / '.env')
 model = None
 weighted_model = None
 
+# Global state for last recommendation query
+last_rec_song = None
+last_rec_artist = None
+last_rec_n = 10
+
 def initialize_model():
     """Initialize models on app startup"""
     global model, weighted_model
     
-    saved_models_dir_path = os.path.join(MODELS_DIR, 'saved') # Đường dẫn đến thư mục 'saved'
-    model_path = os.path.join(saved_models_dir_path, 'enhanced_content_recommender.pkl')
-    weighted_model_path = os.path.join(saved_models_dir_path, 'weighted_content_recommender.pkl')
+    # ✅ Fixed file paths aligned with actual data structure
+    model_path = os.path.join(MODELS_DIR, 'enhanced_content_recommender.pkl')
+    weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
 
     # EnhancedContentRecommender
     if os.path.exists(model_path):
         try:
             model = EnhancedContentRecommender.load(model_path)
-            if model: # Kiểm tra xem model có được tải thành công không
-                logger.info(f"Loaded EnhancedContentRecommender from {model_path}")
-            else:
-                logger.error(f"Failed to load EnhancedContentRecommender from {model_path}. Model is None.")
-                model = None # Đảm bảo model là None nếu tải lỗi
+            logger.info(f"Loaded EnhancedContentRecommender from {model_path}")
         except Exception as e:
             logger.error(f"Error loading enhanced model: {e}")
             model = None
@@ -55,11 +56,7 @@ def initialize_model():
     if os.path.exists(weighted_model_path):
         try:
             weighted_model = WeightedContentRecommender.load(weighted_model_path)
-            if weighted_model: # Kiểm tra xem model có được tải thành công không
-                logger.info(f"Loaded WeightedContentRecommender from {weighted_model_path}")
-            else:
-                logger.error(f"Failed to load WeightedContentRecommender from {weighted_model_path}. Model is None.")
-                weighted_model = None # Đảm bảo model là None nếu tải lỗi
+            logger.info(f"Loaded WeightedContentRecommender from {weighted_model_path}")
         except Exception as e:
             logger.error(f"Error loading weighted model: {e}")
             weighted_model = None
@@ -160,11 +157,9 @@ def train_model():
     global model, weighted_model
     
     try:
-        saved_models_dir_path = os.path.join(MODELS_DIR, 'saved') # Đường dẫn đến thư mục 'saved'
-        os.makedirs(saved_models_dir_path, exist_ok=True) # Đảm bảo thư mục 'saved' tồn tại
-
-        enhanced_model_path = os.path.join(saved_models_dir_path, 'enhanced_content_recommender.pkl')
-        weighted_model_path = os.path.join(saved_models_dir_path, 'weighted_content_recommender.pkl')
+        # ✅ Fixed file paths
+        enhanced_model_path = os.path.join(MODELS_DIR, 'enhanced_content_recommender.pkl')
+        weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
         processed_path = os.path.join(PROCESSED_DATA_DIR, 'processed_tracks.csv')
 
         # Check data availability
@@ -186,18 +181,7 @@ def train_model():
         if os.path.exists(enhanced_model_path):
             logger.info("Loading existing EnhancedContentRecommender...")
             model = EnhancedContentRecommender.load(enhanced_model_path)
-            if model and model.is_trained:
-                results.append("✅ EnhancedContentRecommender loaded")
-            else:
-                results.append("❌ EnhancedContentRecommender loading failed or not trained, retraining...")
-                model = EnhancedContentRecommender() # Tạo instance mới để huấn luyện lại
-                success = model.train(tracks_df)
-                if success:
-                    model.save(enhanced_model_path)
-                    results.append("✅ EnhancedContentRecommender retrained and saved")
-                else:
-                    results.append("❌ EnhancedContentRecommender retraining failed")
-                    model = None # Đặt là None nếu huấn luyện lại thất bại
+            results.append("✅ EnhancedContentRecommender loaded")
         else:
             logger.info("Training new EnhancedContentRecommender...")
             model = EnhancedContentRecommender()
@@ -207,24 +191,12 @@ def train_model():
                 results.append("✅ EnhancedContentRecommender trained and saved")
             else:
                 results.append("❌ EnhancedContentRecommender training failed")
-                model = None
 
         # Train WeightedContentRecommender  
         if os.path.exists(weighted_model_path):
             logger.info("Loading existing WeightedContentRecommender...")
             weighted_model = WeightedContentRecommender.load(weighted_model_path)
-            if weighted_model and weighted_model.is_trained:
-                results.append("✅ WeightedContentRecommender loaded")
-            else:
-                results.append("❌ WeightedContentRecommender loading failed or not trained, retraining...")
-                weighted_model = WeightedContentRecommender() # Tạo instance mới để huấn luyện lại
-                success = weighted_model.train(tracks_df)
-                if success:
-                    weighted_model.save(weighted_model_path)
-                    results.append("✅ WeightedContentRecommender retrained and saved")
-                else:
-                    results.append("❌ WeightedContentRecommender retraining failed")
-                    weighted_model = None # Đặt là None nếu huấn luyện lại thất bại
+            results.append("✅ WeightedContentRecommender loaded")
         else:
             logger.info("Training new WeightedContentRecommender...")
             weighted_model = WeightedContentRecommender()
@@ -234,7 +206,6 @@ def train_model():
                 results.append("✅ WeightedContentRecommender trained and saved")
             else:
                 results.append("❌ WeightedContentRecommender training failed")
-                weighted_model = None
 
         # ✅ Feature quality analysis
         feature_analysis = []
@@ -262,9 +233,15 @@ def train_model():
         return f"❌ Training error: {str(e)}"
 
 def recommend_similar(song_name, artist_name="", n=10):
-    """Generate recommendations with both models"""
-    global model, weighted_model
+    """Generate recommendations with both models and update last query state."""
+    global model, weighted_model, last_rec_song, last_rec_artist, last_rec_n
     
+    # Update last query state
+    last_rec_song = song_name
+    last_rec_artist = artist_name
+    last_rec_n = n
+    logger.info(f"Updated last recommendation query: Song='{song_name}', Artist='{artist_name}', N={n}")
+
     if model is None or not model.is_trained:
         return "⚠️ EnhancedContentRecommender not trained. Please train models first."
     if weighted_model is None or not weighted_model.is_trained:
@@ -376,47 +353,6 @@ def recommend_similar(song_name, artist_name="", n=10):
         logger.error(f"Recommendation error: {e}\n{traceback.format_exc()}")
         return f"❌ System error: {str(e)}"
 
-def compare_recommendation_models(song_name, artist_name="", n=10):
-    """Generate and display visual comparison between recommendation models"""
-    global model, weighted_model
-    
-    if model is None or not model.is_trained:
-        return "⚠️ EnhancedContentRecommender not trained. Please train models first."
-    if weighted_model is None or not weighted_model.is_trained:
-        return "⚠️ WeightedContentRecommender not trained. Please train models first."
-    
-    try:
-        # Generate visualization
-        output_path = save_comparison_visualization(
-            enhanced_model=model,
-            weighted_model=weighted_model,
-            track_name=song_name,
-            artist=artist_name,
-            n_recommendations=n,
-            output_path="static/model_comparison.png"
-        )
-        
-        if output_path:
-            return f"""
-**🔍 Model Comparison for "{song_name}" by {artist_name or "Unknown"}**
-
-Visualization created with the following metrics:
-1. **Độ chính xác của đề xuất**: So sánh sự trùng lặp giữa các bài hát được đề xuất
-2. **Đa dạng văn hóa**: Phân phối các nền văn hóa âm nhạc trong kết quả
-3. **Hiệu suất tìm kiếm**: Thời gian xử lý và độ tin cậy của mỗi mô hình
-4. **Độ phổ biến của bài hát**: Phân phối độ phổ biến trong các đề xuất
-5. **Cân bằng giữa tính phổ biến và tính liên quan**: Mối quan hệ giữa điểm số và độ phổ biến
-
-✅ Visualization saved to {output_path}
-"""
-        else:
-            return "❌ Failed to generate model comparison"
-            
-    except Exception as e:
-        import traceback
-        logger.error(f"Error comparing models: {e}\n{traceback.format_exc()}")
-        return f"❌ Comparison error: {str(e)}"
-
 def check_data_status():
     """Check data completeness and quality"""
     try:
@@ -481,32 +417,15 @@ def check_data_status():
             status_lines.append("❌ **Processed data:** Not found")
         
         # Check models
-        saved_models_dir_path = os.path.join(MODELS_DIR, 'saved') # Đường dẫn đến thư mục 'saved'
-        enhanced_model_path = os.path.join(saved_models_dir_path, 'enhanced_content_recommender.pkl')
-        weighted_model_path = os.path.join(saved_models_dir_path, 'weighted_content_recommender.pkl')
+        enhanced_model_path = os.path.join(MODELS_DIR, 'enhanced_content_recommender.pkl')
+        weighted_model_path = os.path.join(MODELS_DIR, 'weighted_content_recommender.pkl')
         
-        models_available = 0
-        if os.path.exists(enhanced_model_path):
-            # Thử tải nhẹ để kiểm tra tính hợp lệ (tùy chọn, có thể làm chậm)
-            # temp_model = EnhancedContentRecommender.load(enhanced_model_path)
-            # if temp_model and temp_model.is_trained:
-            # models_available +=1
-            # else: logger.warning(f"Enhanced model file at {enhanced_model_path} might be corrupted or not trained.")
-            models_available +=1 # Giả định file tồn tại là đủ cho status này
-
-        if os.path.exists(weighted_model_path):
-            # temp_model_w = WeightedContentRecommender.load(weighted_model_path)
-            # if temp_model_w and temp_model_w.is_trained:
-            # models_available +=1
-            # else: logger.warning(f"Weighted model file at {weighted_model_path} might be corrupted or not trained.")
-            models_available +=1
-
-        if models_available == 2:
-            status_lines.append("✅ **Models:** Both model files available in 'saved' directory")
-        elif models_available == 1:
-            status_lines.append("⚠️ **Models:** Partial model files available in 'saved' directory")
+        if os.path.exists(enhanced_model_path) and os.path.exists(weighted_model_path):
+            status_lines.append("✅ **Models:** Both models available")
+        elif os.path.exists(enhanced_model_path) or os.path.exists(weighted_model_path):
+            status_lines.append("⚠️ **Models:** Partial availability")
         else:
-            status_lines.append("❌ **Models:** Model files not found in 'saved' directory")
+            status_lines.append("❌ **Models:** Not trained")
 
         # Overall status
         if score >= 4:
@@ -537,18 +456,80 @@ def check_data_status():
         logger.error(f"Error checking data status: {e}")
         return f"❌ **Error checking data status:** {str(e)}"
 
+def generate_and_show_comparison_chart(song_name, artist_name, n_recs, request: gr.Request = None):
+    """
+    Generates and returns the path to the model comparison chart.
+    If song_name is None, it tries to use the last recommended song.
+    """
+    global model, weighted_model, last_rec_song, last_rec_artist, last_rec_n
+
+    # Use last recommended song if no specific song is provided for the chart
+    # This is useful when the tab is selected.
+    if song_name is None and artist_name is None and n_recs is None:
+        if last_rec_song:
+            song_name = last_rec_song
+            artist_name = last_rec_artist
+            n_recs = last_rec_n
+            logger.info(f"Using last recommendation for chart: Song='{song_name}', Artist='{artist_name}', N={n_recs}")
+        else:
+            return None, "ℹ️ Perform a recommendation in the 'Recommendations' tab first, or enter a song here to generate a comparison chart."
+
+    if not model or not model.is_trained:
+        return None, "⚠️ EnhancedContentRecommender not trained. Please train models first."
+    if not weighted_model or not weighted_model.is_trained:
+        return None, "⚠️ WeightedContentRecommender not trained. Please train models first."
+
+    if not song_name: # song_name could still be None if last_rec_song was also None
+        return None, "⚠️ Please enter a Song Name or perform a recommendation first."
+
+    try:
+        # Define an output path for the chart in a subdirectory
+        charts_dir = os.path.join(Path(__file__).parent, 'outputs', 'charts')
+        os.makedirs(charts_dir, exist_ok=True)
+        
+        # Create a unique filename to avoid browser caching issues with the same name
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        chart_filename = f"model_comparison_{song_name.replace(' ', '_')}_{timestamp}.png"
+        output_chart_path = os.path.join(charts_dir, chart_filename)
+
+        logger.info(f"Generating comparison chart for '{song_name}' by '{artist_name or 'N/A'}' to {output_chart_path}")
+
+        saved_chart_path = save_comparison_visualization(
+            enhanced_model=model,
+            weighted_model=weighted_model,
+            track_name=song_name,
+            artist=artist_name if artist_name else None,
+            n_recommendations=int(n_recs),
+            output_path=output_chart_path
+        )
+
+        if saved_chart_path:
+            logger.info(f"Comparison chart saved to: {saved_chart_path}")
+            return saved_chart_path, f"✅ Comparison chart generated for '{song_name}'."
+        else:
+            # save_comparison_visualization logs errors internally if fig is None or save fails
+            # compare_recommendation_models also returns a figure with an error message if recs are empty or models not trained
+            # So, if saved_chart_path is None, it means an error occurred during saving or figure generation.
+            # The visualization module should have logged the specific error.
+            # We can check if the output_chart_path (which might contain an error image) exists.
+            if os.path.exists(output_chart_path):
+                 return output_chart_path, "⚠️ Chart generated, but there might be issues (e.g., no recommendations found). Check chart content."
+            return None, "❌ Failed to generate comparison chart. Check application logs for more details."
+
+    except Exception as e:
+        logger.error(f"Error in generate_and_show_comparison_chart: {e}\n{traceback.format_exc()}")
+        return None, f"❌ System error while generating chart: {str(e)}"
+
 def create_ui():
     """Create Gradio interface"""
+    # State variables to store the last recommendation query
+    # These are not directly used as inputs/outputs in gr.Blocks context for this specific auto-refresh,
+    # we'll use global Python variables for simplicity here, updated by recommend_similar.
+    # For more complex state management across sessions or users, gr.State with session state would be better.
+
     with gr.Blocks(title="Music Recommender - ISRC Cultural Intelligence", theme=gr.themes.Soft()) as app:
         gr.Markdown("# 🎵 Music Recommender - ISRC Cultural Intelligence")
         gr.Markdown("*Advanced recommendation system with ISRC-based cultural intelligence and Spotify metadata*")
-        
-        # Shared state for last recommendation
-        last_recommendation = gr.State({
-            "song": "",
-            "artist": "",
-            "has_recommendations": False
-        })
         
         with gr.Tab("🔧 Data Setup"):
             gr.Markdown("### Setup Dataset from Spotify API")
@@ -590,87 +571,30 @@ def create_ui():
             n_similar = gr.Slider(5, 20, value=10, step=1, label="📊 Number of Recommendations")
             rec_btn = gr.Button("🔍 Get Recommendations", variant="primary")
             rec_output = gr.Markdown()
-            
-            # Update last recommendation state when recommendations are generated
-            def update_last_rec(song, artist, output):
-                return {"song": song, "artist": artist, "has_recommendations": True}
-            
-            rec_btn.click(
-                fn=recommend_similar, 
-                inputs=[song_input, artist_input, n_similar], 
-                outputs=rec_output
-            ).then(
-                fn=update_last_rec,
-                inputs=[song_input, artist_input, rec_output],
-                outputs=last_recommendation
-            )
+            # The recommend_similar function will now update global state
+            rec_btn.click(fn=recommend_similar, inputs=[song_input, artist_input, n_similar], outputs=rec_output)
 
-        model_comparison_tab = gr.Tab("📊 Model Comparison")
-        with model_comparison_tab:
-            gr.Markdown("### Compare Recommendation Models")
-            gr.Markdown("*Visual comparison of EnhancedContentRecommender and WeightedContentRecommender*")
+
+        with gr.Tab("📊 Model Comparison") as comparison_tab: 
+            gr.Markdown("### 📈 Compare Recommendation Model Performance")
+            gr.Markdown("*Visualize differences in recommendations, diversity, and performance. The chart automatically updates based on the last song recommended in the 'Recommendations' tab.*")
             
-            comparison_status_md = gr.Markdown("Select this tab after generating recommendations in the 'Recommendations' tab to see the model comparison.")
-            
-            comparison_image_display = gr.Image(
-                label="Model Comparison Visualization", 
-                visible=False,
-                interactive=False
+            # Outputs for the chart and status (will be updated when tab is selected)
+            auto_comparison_status_output = gr.Markdown()
+            auto_comparison_chart_output = gr.Image(label="Last Recommendation Comparison Chart", type="filepath", interactive=False)
+
+            # Action to trigger when the "Model Comparison" tab is selected
+            def refresh_comparison_on_tab_select():
+                logger.info("Model Comparison tab selected. Attempting to generate chart for last recommendation.")
+                # Call with None inputs to use the global state
+                return generate_and_show_comparison_chart(None, None, None)
+
+            comparison_tab.select(
+                fn=refresh_comparison_on_tab_select,
+                inputs=None, # No direct inputs from UI for this auto-refresh
+                outputs=[auto_comparison_chart_output, auto_comparison_status_output]
             )
             
-            def display_comparison_on_tab_select(last_rec_state):
-                global model, weighted_model # Ensure access to global models
-                if not model or not weighted_model or not model.is_trained or not weighted_model.is_trained:
-                    return (
-                        "⚠️ Models are not trained or loaded. Please train models first from the 'Model Training' tab.",
-                        gr.Image.update(visible=False)
-                    )
-
-                if not last_rec_state["has_recommendations"]:
-                    return (
-                        "⚠️ Please generate recommendations first using the 'Recommendations' tab.", 
-                        gr.Image.update(visible=False)
-                    )
-                
-                song = last_rec_state["song"]
-                artist = last_rec_state["artist"]
-                
-                # Ensure the static directory exists
-                static_dir = "static"
-                os.makedirs(static_dir, exist_ok=True)
-                actual_save_path = os.path.join(static_dir, "model_comparison.png")
-
-                # Attempt to generate visualization
-                output_image_path = save_comparison_visualization(
-                    enhanced_model=model,
-                    weighted_model=weighted_model,
-                    track_name=song,
-                    artist=artist,
-                    n_recommendations=10, # Default or make configurable if needed
-                    output_path=actual_save_path
-                )
-                
-                if output_image_path:
-                    # Add cache buster to the image path for display
-                    display_path = f"{output_image_path}?v={time.time()}"
-                    return (
-                        f"✅ Model comparison for '{song}' by '{artist or 'Unknown'}' displayed below.", 
-                        gr.Image.update(value=display_path, visible=True)
-                    )
-                else:
-                    return (
-                        f"❌ Failed to generate model comparison for '{song}' by '{artist or 'Unknown'}'. Check logs for details.", 
-                        gr.Image.update(visible=False)
-                    )
-
-            model_comparison_tab.select(
-                fn=display_comparison_on_tab_select,
-                inputs=[last_recommendation],
-                outputs=[comparison_status_md, comparison_image_display]
-            )
-            
-            # The gr.HTML block with JavaScript is no longer needed and should be removed.
-    
     return app
 
 if __name__ == "__main__":

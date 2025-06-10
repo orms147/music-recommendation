@@ -286,18 +286,33 @@ def save_comparison_visualization(enhanced_model, weighted_model, track_name, ar
     Returns:
         Path to saved image or None if failed
     """
-    fig = compare_recommendation_models(
-        enhanced_model, weighted_model, track_name, artist, n_recommendations
-    )
-    
-    if fig is None:
-        return None
-        
+    fig = None # Initialize fig to None
     try:
-        fig.savefig(output_path, dpi=100, bbox_inches='tight')
-        plt.close(fig)
+        fig = compare_recommendation_models(
+            enhanced_model, weighted_model, track_name, artist, n_recommendations
+        )
+        
+        if fig is None:
+            logger.warning(f"Figure generation failed for '{track_name}' by '{artist or 'Unknown'}' in compare_recommendation_models.")
+            return None
+            
+        # Ensure the output directory exists
+        import os
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir): # Check if output_dir is not an empty string
+            os.makedirs(output_dir, exist_ok=True)
+            logger.info(f"Created directory: {output_dir}")
+
+        fig.savefig(output_path, dpi=150, bbox_inches='tight') # Increased DPI for potentially better quality
         logger.info(f"Saved model comparison visualization to {output_path}")
         return output_path
     except Exception as e:
-        logger.error(f"Error saving visualization: {e}")
+        logger.error(f"Error during visualization generation or saving for '{track_name}': {e}", exc_info=True)
         return None
+    finally:
+        if fig is not None:
+            try:
+                plt.close(fig) # Close the figure to free memory
+                logger.debug(f"Closed figure for '{track_name}'")
+            except Exception as e_close:
+                logger.error(f"Error closing figure for '{track_name}': {e_close}", exc_info=True)
