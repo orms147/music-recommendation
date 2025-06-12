@@ -339,13 +339,24 @@ class EnhancedContentRecommender(BaseRecommender):
         self._update_cache(cache_key, final_result)
         
         # Return clean result
+        # Return clean result
         result_cols = ['name', 'artist', 'enhanced_score']
+
+        # Thêm các cột cần cho visualization
+        if 'music_culture' in final_result.columns:
+            result_cols.append('music_culture')
+        if 'popularity' in final_result.columns:
+            result_cols.append('popularity')
         if 'isrc_country' in final_result.columns:
             result_cols.append('isrc_country')
         if 'region' in final_result.columns:
             result_cols.append('region')
+        # Thêm cột score của model gốc để vẽ biểu đồ Popularity vs Relevance
+        if 'final_score' in final_result.columns:
+            result_cols.append('final_score')
+
         available_cols = [col for col in result_cols if col in final_result.columns]
-        
+
         return final_result[available_cols].round(3)
     
     def _update_cache(self, key, value):

@@ -26,13 +26,13 @@ def compare_recommendation_models(enhanced_model, weighted_model, track_name, ar
         return None
     
     # Get recommendations from both models with timing
-    start_time = time.time()
+    start_time = time.perf_counter() # Sử dụng perf_counter
     enhanced_recs = enhanced_model.recommend(track_name, artist, n_recommendations)
-    enhanced_time = time.time() - start_time
+    enhanced_time = time.perf_counter() - start_time # Sử dụng perf_counter
     
-    start_time = time.time()
+    start_time = time.perf_counter() # Sử dụng perf_counter
     weighted_recs = weighted_model.recommend(track_name, artist, n_recommendations)
-    weighted_time = time.time() - start_time
+    weighted_time = time.perf_counter() - start_time # Sử dụng perf_counter
     
     if enhanced_recs.empty or weighted_recs.empty:
         logger.error(f"Could not get recommendations for '{track_name}'")
