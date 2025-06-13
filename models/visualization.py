@@ -25,24 +25,25 @@ def compare_recommendation_models(enhanced_model, weighted_model, track_name, ar
         logger.error("Models not trained. Please train both models first.")
         return None
     
-    # Get recommendations from both models with timing
-    start_time = time.perf_counter() # Sử dụng perf_counter
+    # Measure recommendation time
+    start_time = time.time()
     enhanced_recs = enhanced_model.recommend(track_name, artist, n_recommendations)
-    enhanced_time = time.perf_counter() - start_time # Sử dụng perf_counter
+    enhanced_time = time.time() - start_time
     
-    start_time = time.perf_counter() # Sử dụng perf_counter
+    start_time = time.time()
     weighted_recs = weighted_model.recommend(track_name, artist, n_recommendations)
-    weighted_time = time.perf_counter() - start_time # Sử dụng perf_counter
+    weighted_time = time.time() - start_time
     
-    if enhanced_recs.empty or weighted_recs.empty:
-        logger.error(f"Could not get recommendations for '{track_name}'")
+    # Check if recommendations were generated
+    if enhanced_recs.empty and weighted_recs.empty:
+        logger.error(f"Both models failed to generate recommendations for '{track_name}'")
         return None
     
     # Create figure with 3x2 subplots
     fig, axes = plt.subplots(3, 2, figsize=(15, 18))
     fig.suptitle(f"Model Comparison: '{track_name}' by {artist or 'Unknown'}", fontsize=16)
     
-    # 1. Recommendation Accuracy (top left)
+    # 1. Recommendation Overlap (top left)
     plot_recommendation_overlap(axes[0, 0], enhanced_recs, weighted_recs)
     
     # 2. Cultural Diversity (top right)
@@ -54,13 +55,13 @@ def compare_recommendation_models(enhanced_model, weighted_model, track_name, ar
     # 4. Popularity Distribution (middle right)
     plot_popularity_distribution(axes[1, 1], enhanced_recs, weighted_recs)
     
-    # 5. Popularity vs Relevance Balance (bottom left)
-    plot_popularity_relevance_balance(axes[2, 0], enhanced_recs, weighted_recs)
+    # 5. Cluster Analysis (bottom left) - NEW
+    plot_cluster_analysis(axes[2, 0], enhanced_recs, weighted_recs, enhanced_model, weighted_model, track_name, artist)
     
-    # 6. Summary Statistics (bottom right)
-    plot_summary_statistics(axes[2, 1], enhanced_recs, weighted_recs, enhanced_time, weighted_time)
+    # 6. Cultural Similarity Heatmap (bottom right) - NEW
+    plot_cultural_similarity_heatmap(axes[2, 1], enhanced_recs, weighted_recs)
     
-    plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust for suptitle
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
     return fig
 
 def plot_recommendation_overlap(ax, enhanced_recs, weighted_recs):
@@ -141,22 +142,26 @@ def plot_search_performance(ax, enhanced_model, weighted_model, track_name, arti
 
     try:
         if hasattr(enhanced_model, '_find_track_with_fuzzy'):
-            # Assuming _find_track_with_fuzzy returns (index, confidence_score)
-            # or (None, None) if not found or error
-            _, enhanced_conf_val = enhanced_model._find_track_with_fuzzy(track_name, artist)
-            if enhanced_conf_val is not None and isinstance(enhanced_conf_val, (int, float)):
-                enhanced_conf_text = f"{enhanced_conf_val:.2f}"
-            elif enhanced_conf_val is not None:
-                logger.warning(f"Enhanced model _find_track_with_fuzzy returned non-numeric confidence: {enhanced_conf_val}")
+            # Gọi phương thức và kiểm tra kết quả
+            result = enhanced_model._find_track_with_fuzzy(track_name, artist)
+            if result is not None and isinstance(result, tuple) and len(result) == 2:
+                _, enhanced_conf_val = result
+                if enhanced_conf_val is not None and isinstance(enhanced_conf_val, (int, float)):
+                    enhanced_conf_text = f"{enhanced_conf_val:.2f}"
+            else:
+                logger.warning(f"Enhanced model _find_track_with_fuzzy returned invalid result: {result}")
         else:
             logger.info("Enhanced model does not have '_find_track_with_fuzzy' method for confidence score.")
             
         if hasattr(weighted_model, '_find_track_with_fuzzy'):
-            _, weighted_conf_val = weighted_model._find_track_with_fuzzy(track_name, artist)
-            if weighted_conf_val is not None and isinstance(weighted_conf_val, (int, float)):
-                weighted_conf_text = f"{weighted_conf_val:.2f}"
-            elif weighted_conf_val is not None:
-                logger.warning(f"Weighted model _find_track_with_fuzzy returned non-numeric confidence: {weighted_conf_val}")
+            # Gọi phương thức và kiểm tra kết quả
+            result = weighted_model._find_track_with_fuzzy(track_name, artist)
+            if result is not None and isinstance(result, tuple) and len(result) == 2:
+                _, weighted_conf_val = result
+                if weighted_conf_val is not None and isinstance(weighted_conf_val, (int, float)):
+                    weighted_conf_text = f"{weighted_conf_val:.2f}"
+            else:
+                logger.warning(f"Weighted model _find_track_with_fuzzy returned invalid result: {result}")
         else:
             logger.info("Weighted model does not have '_find_track_with_fuzzy' method for confidence score.")
             
@@ -270,6 +275,184 @@ def plot_summary_statistics(ax, enhanced_recs, weighted_recs, enhanced_time, wei
     table.scale(1, 1.5)
     
     ax.set_title('Summary Statistics')
+
+def plot_cluster_analysis(ax, enhanced_recs, weighted_recs, enhanced_model, weighted_model, track_name, artist=None):
+    """Plot cluster analysis for both recommendation models"""
+    ax.set_title("Cluster Distribution Analysis", fontsize=12)
+    
+    # Find seed track
+    seed_idx_enhanced = None
+    seed_idx_weighted = None
+    
+    # Kiểm tra phương thức find_track_idx
+    if hasattr(enhanced_model, 'find_track_idx'):
+        seed_idx_enhanced = enhanced_model.find_track_idx(track_name, artist)
+    else:
+        logger.warning("Enhanced model does not have find_track_idx method")
+    
+    if hasattr(weighted_model, 'find_track_idx'):
+        seed_idx_weighted = weighted_model.find_track_idx(track_name, artist)
+    else:
+        logger.warning("Weighted model does not have find_track_idx method")
+    
+    # Check if we have cluster information
+    has_kmeans = False
+    has_hdbscan = False
+    
+    if seed_idx_enhanced is not None and 'kmeans_cluster' in enhanced_model.tracks_df.columns:
+        seed_kmeans = enhanced_model.tracks_df.iloc[seed_idx_enhanced]['kmeans_cluster']
+        has_kmeans = True
+    elif seed_idx_weighted is not None and 'kmeans_cluster' in weighted_model.tracks_df.columns:
+        seed_kmeans = weighted_model.tracks_df.iloc[seed_idx_weighted]['kmeans_cluster']
+        has_kmeans = True
+    else:
+        seed_kmeans = -1
+    
+    if seed_idx_enhanced is not None and 'hdbscan_cluster' in enhanced_model.tracks_df.columns:
+        seed_hdbscan = enhanced_model.tracks_df.iloc[seed_idx_enhanced]['hdbscan_cluster']
+        has_hdbscan = True
+    elif seed_idx_weighted is not None and 'hdbscan_cluster' in weighted_model.tracks_df.columns:
+        seed_hdbscan = weighted_model.tracks_df.iloc[seed_idx_weighted]['hdbscan_cluster']
+        has_hdbscan = True
+    else:
+        seed_hdbscan = -1
+    
+    # If no cluster information, show message
+    if not has_kmeans and not has_hdbscan:
+        ax.text(0.5, 0.5, "No clustering information available", 
+                ha='center', va='center', fontsize=12)
+        ax.axis('off')
+        return
+    
+    # Prepare data for plotting
+    data = []
+    labels = []
+    
+    # K-Means analysis
+    if has_kmeans:
+        if 'kmeans_cluster' in enhanced_recs.columns:
+            same_kmeans_enhanced = (enhanced_recs['kmeans_cluster'] == seed_kmeans).sum()
+            data.append(same_kmeans_enhanced)
+            labels.append('Enhanced\nSame K-Means')
+            
+            diff_kmeans_enhanced = len(enhanced_recs) - same_kmeans_enhanced
+            data.append(diff_kmeans_enhanced)
+            labels.append('Enhanced\nDiff K-Means')
+        
+        if 'kmeans_cluster' in weighted_recs.columns:
+            same_kmeans_weighted = (weighted_recs['kmeans_cluster'] == seed_kmeans).sum()
+            data.append(same_kmeans_weighted)
+            labels.append('Weighted\nSame K-Means')
+            
+            diff_kmeans_weighted = len(weighted_recs) - same_kmeans_weighted
+            data.append(diff_kmeans_weighted)
+            labels.append('Weighted\nDiff K-Means')
+    
+    # HDBSCAN analysis
+    if has_hdbscan:
+        if 'hdbscan_cluster' in enhanced_recs.columns:
+            same_hdbscan_enhanced = (enhanced_recs['hdbscan_cluster'] == seed_hdbscan).sum()
+            data.append(same_hdbscan_enhanced)
+            labels.append('Enhanced\nSame HDBSCAN')
+            
+            diff_hdbscan_enhanced = len(enhanced_recs) - same_hdbscan_enhanced
+            data.append(diff_hdbscan_enhanced)
+            labels.append('Enhanced\nDiff HDBSCAN')
+        
+        if 'hdbscan_cluster' in weighted_recs.columns:
+            same_hdbscan_weighted = (weighted_recs['hdbscan_cluster'] == seed_hdbscan).sum()
+            data.append(same_hdbscan_weighted)
+            labels.append('Weighted\nSame HDBSCAN')
+            
+            diff_hdbscan_weighted = len(weighted_recs) - same_hdbscan_weighted
+            data.append(diff_hdbscan_weighted)
+            labels.append('Weighted\nDiff HDBSCAN')
+    
+    # Plot the data
+    colors = plt.cm.tab10(np.linspace(0, 1, len(data)))
+    ax.bar(labels, data, color=colors)
+    ax.set_ylabel('Number of Tracks')
+    ax.set_ylim(0, max(data) * 1.2)
+    
+    # Add seed cluster info
+    if has_kmeans:
+        ax.text(0.02, 0.98, f"Seed K-Means Cluster: {seed_kmeans}", 
+                transform=ax.transAxes, va='top', fontsize=10)
+    if has_hdbscan:
+        ax.text(0.02, 0.93, f"Seed HDBSCAN Cluster: {seed_hdbscan}", 
+                transform=ax.transAxes, va='top', fontsize=10)
+    
+    # Rotate x-axis labels for better readability
+    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+
+def plot_cultural_similarity_heatmap(ax, enhanced_recs, weighted_recs):
+    """Plot cultural similarity heatmap between recommendations"""
+    ax.set_title("Cultural Similarity Heatmap", fontsize=12)
+    
+    # Check if we have cultural information
+    if 'music_culture' not in enhanced_recs.columns or 'music_culture' not in weighted_recs.columns:
+        ax.text(0.5, 0.5, "No cultural information available", 
+                ha='center', va='center', fontsize=12)
+        ax.axis('off')
+        return
+    
+    # Get unique cultures from both recommendation sets
+    enhanced_cultures = enhanced_recs['music_culture'].unique()
+    weighted_cultures = weighted_recs['music_culture'].unique()
+    all_cultures = np.unique(np.concatenate([enhanced_cultures, weighted_cultures]))
+    
+    # Create matrix for heatmap
+    matrix_size = len(all_cultures)
+    similarity_matrix = np.zeros((matrix_size, matrix_size))
+    
+    # Count occurrences of each culture in each recommendation set
+    enhanced_counts = enhanced_recs['music_culture'].value_counts()
+    weighted_counts = weighted_recs['music_culture'].value_counts()
+    
+    # Fill the matrix
+    for i, culture1 in enumerate(all_cultures):
+        for j, culture2 in enumerate(all_cultures):
+            # Diagonal: percentage of this culture in both sets
+            if i == j:
+                enhanced_pct = enhanced_counts.get(culture1, 0) / len(enhanced_recs) if len(enhanced_recs) > 0 else 0
+                weighted_pct = weighted_counts.get(culture1, 0) / len(weighted_recs) if len(weighted_recs) > 0 else 0
+                similarity_matrix[i, j] = (enhanced_pct + weighted_pct) / 2 * 100
+            # Off-diagonal: co-occurrence in recommendations
+            else:
+                enhanced_co = ((enhanced_recs['music_culture'] == culture1) & 
+                              (enhanced_recs['music_culture'].shift(1) == culture2)).sum()
+                weighted_co = ((weighted_recs['music_culture'] == culture1) & 
+                              (weighted_recs['music_culture'].shift(1) == culture2)).sum()
+                similarity_matrix[i, j] = enhanced_co + weighted_co
+    
+    # Plot heatmap
+    im = ax.imshow(similarity_matrix, cmap='YlOrRd')
+    
+    # Add colorbar
+    cbar = ax.figure.colorbar(im, ax=ax)
+    cbar.ax.set_ylabel('Cultural Co-occurrence / Percentage', rotation=-90, va="bottom")
+    
+    # Add labels
+    ax.set_xticks(np.arange(matrix_size))
+    ax.set_yticks(np.arange(matrix_size))
+    ax.set_xticklabels(all_cultures)
+    ax.set_yticklabels(all_cultures)
+    
+    # Rotate x-axis labels
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+    
+    # Add text annotations
+    for i in range(matrix_size):
+        for j in range(matrix_size):
+            if i == j:
+                text = ax.text(j, i, f"{similarity_matrix[i, j]:.1f}%",
+                              ha="center", va="center", color="black" if similarity_matrix[i, j] < 50 else "white")
+            else:
+                if similarity_matrix[i, j] > 0:
+                    text = ax.text(j, i, f"{int(similarity_matrix[i, j])}",
+                                  ha="center", va="center", color="black" if similarity_matrix[i, j] < 5 else "white")
+    
+    ax.set_title("Cultural Distribution & Co-occurrence")
 
 def save_comparison_visualization(enhanced_model, weighted_model, track_name, artist=None, 
                                  n_recommendations=10, output_path="model_comparison.png"):
