@@ -5,6 +5,12 @@ import pandas as pd
 import gradio as gr
 from pathlib import Path
 from dotenv import load_dotenv
+import warnings
+import time
+from functools import lru_cache
+
+# Bỏ qua cảnh báo về force_all_finite từ HDBSCAN
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*force_all_finite.*")
 
 from config.config import (
     RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR,
@@ -175,6 +181,19 @@ def train_model():
         if missing_features:
             return f"❌ Missing required features: {missing_features}. Please reprocess data."
         
+        # Kiểm tra xem có cột clustering không
+        has_kmeans = 'kmeans_cluster' in tracks_df.columns
+        has_hdbscan = 'hdbscan_cluster' in tracks_df.columns
+        
+        if not has_kmeans or not has_hdbscan:
+            logger.warning("Clustering features missing. Reprocessing data...")
+            processor = DataProcessor()
+            processor.load_data()
+            processor.apply_clustering()
+            processor.save_processed_data()
+            tracks_df = pd.read_csv(processed_path)
+            logger.info("Data reprocessed with clustering features")
+        
         results = []
         
         # Train EnhancedContentRecommender
@@ -215,6 +234,16 @@ def train_model():
         feature_analysis.append(f"📊 **Cultural features:** {len(cultural_features)}")
         feature_analysis.append(f"🎵 **Genre features:** {len(genre_features)}")
         
+        # Thêm thông tin về clustering
+        if 'kmeans_cluster' in tracks_df.columns:
+            kmeans_clusters = tracks_df['kmeans_cluster'].nunique()
+            feature_analysis.append(f"🔍 **K-Means clusters:** {kmeans_clusters}")
+        
+        if 'hdbscan_cluster' in tracks_df.columns:
+            hdbscan_clusters = tracks_df['hdbscan_cluster'].nunique()
+            noise_points = (tracks_df['hdbscan_cluster'] == -1).sum()
+            feature_analysis.append(f"🔍 **HDBSCAN clusters:** {hdbscan_clusters} (noise: {noise_points})")
+        
         if 'cultural_confidence' in tracks_df.columns:
             avg_confidence = tracks_df['cultural_confidence'].mean()
             feature_analysis.append(f"🧠 **Cultural confidence:** {avg_confidence:.3f}")
@@ -229,12 +258,24 @@ def train_model():
 **🚀 Ready for recommendations!**"""
 
     except Exception as e:
-        logger.error(f"Error training models: {e}\n{traceback.format_exc()}")
+        logger.error(f"Error in train_model: {e}\n{traceback.format_exc()}")
         return f"❌ Training error: {str(e)}"
+
+# Thêm cache cho các hàm tìm kiếm và đề xuất
+@lru_cache(maxsize=100)
+def cached_recommend(model_name, track_name, artist, n_recommendations):
+    """Cached version of recommendation function"""
+    global model, weighted_model
+    
+    if model_name == 'enhanced' and model and model.is_trained:
+        return model.recommend(track_name, artist, n_recommendations)
+    elif model_name == 'weighted' and weighted_model and weighted_model.is_trained:
+        return weighted_model.recommend(track_name, artist, n_recommendations)
+    return pd.DataFrame()
 
 def recommend_similar(song_name, artist_name="", n=10):
     """Generate recommendations with both models and update last query state."""
-    global model, weighted_model, last_rec_song, last_rec_artist, last_rec_n
+    global model, weighted_model, last_rec_song, last_rec_artist, last_rec_n, processed_tracks_df
     
     # Update last query state
     last_rec_song = song_name
