@@ -551,5 +551,48 @@ def check_data_completeness():
         'isrc_coverage': (tracks_df['isrc'] != '').sum() / len(tracks_df) if tracks_df is not None and 'isrc' in tracks_df.columns else 0
     }
 
+def check_clustering_features(tracks_df):
+    """Check clustering features in dataset"""
+    print("\nCLUSTERING ANALYSIS:")
+    
+    if tracks_df is None:
+        print("  [ERROR] No tracks data available")
+        return False
+    
+    # Check K-Means clusters
+    kmeans_available = 'kmeans_cluster' in tracks_df.columns
+    if kmeans_available:
+        kmeans_clusters = tracks_df['kmeans_cluster'].nunique()
+        print(f"  [{'OK' if kmeans_clusters > 1 else 'WARN'}] K-Means clusters: {kmeans_clusters}")
+    else:
+        print("  [WARN] K-Means clustering not available")
+    
+    # Check HDBSCAN clusters
+    hdbscan_available = 'hdbscan_cluster' in tracks_df.columns
+    if hdbscan_available:
+        hdbscan_clusters = tracks_df['hdbscan_cluster'].nunique()
+        noise_points = (tracks_df['hdbscan_cluster'] == -1).sum()
+        noise_percentage = noise_points / len(tracks_df) * 100
+        print(f"  [{'OK' if hdbscan_clusters > 1 else 'WARN'}] HDBSCAN clusters: {hdbscan_clusters}")
+        print(f"  [{'OK' if noise_percentage < 30 else 'WARN'}] HDBSCAN noise points: {noise_points} ({noise_percentage:.1f}%)")
+    else:
+    
+    # Overall clustering assessment
+    clustering_score = 0
+    max_clustering_score = 3
+    
+    if kmeans_available and kmeans_clusters > 1: clustering_score += 1
+    if hdbscan_available and hdbscan_clusters > 1: clustering_score += 1
+    if hdbscan_available and noise_percentage < 30: clustering_score += 1
+    
+    print(f"\n  CLUSTERING SCORE: {clustering_score}/{max_clustering_score}")
+    if clustering_score >= 2:
+        print("  [GOOD] Clustering features ready for recommendation models")
+    else:
+        print("  [POOR] Clustering features need improvement")
+    
+    return clustering_score >= 2
+
 if __name__ == "__main__":
     check_data_completeness()
+    check_clustering_features(tracks_df)
