@@ -180,3 +180,10 @@ class BaseRecommender:
         # Cải thiện: Trả về gợi ý bài hát tương tự
         suggestions = self._get_similar_track_names(track_name)
         return False, suggestions
+
+    def _find_track_with_fuzzy(self, track_name, artist=None):
+        """Tìm kiếm bài hát với fuzzy matching và trả về độ tin cậy"""
+        if self.tracks_df is None or track_name is None:
+            return None, 0.0
+        
+        # Chuẩn hóa tên bài hát và nghệ sĩ

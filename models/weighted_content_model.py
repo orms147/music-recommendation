@@ -2,6 +2,7 @@ import logging
 import pickle
 import numpy as np
 import pandas as pd
+import time
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 from models.base_model import BaseRecommender
@@ -69,7 +70,7 @@ class WeightedContentRecommender(BaseRecommender):
     def train(self, tracks_df):
         """Train model with enhanced features"""
         if tracks_df is None or tracks_df.empty:
-            logger.error("Cannot train model: Empty dataframe")
+            logger.error("No track data provided for training")
             return False
         
         self.tracks_df = tracks_df.copy()
@@ -77,6 +78,13 @@ class WeightedContentRecommender(BaseRecommender):
         # Cải thiện: Thêm xử lý đặc trưng mới
         self._preprocess_features()
         self._create_genre_matrix()
+        
+        # REMOVE pre-computation of similarity matrix - too memory intensive
+        # Just validate the genre matrix exists
+        if self.genre_matrix is not None and self.genre_matrix.shape[1] > 0:
+            logger.info(f"Genre matrix ready with {self.genre_matrix.shape[1]} genres")
+        else:
+            logger.warning("Genre matrix not created properly")
         
         self.is_trained = True
         logger.info(f"Model trained with {len(self.tracks_df)} tracks and enhanced features")
@@ -171,229 +179,244 @@ class WeightedContentRecommender(BaseRecommender):
         
         return None
 
-    def recommend(self, track_name=None, artist=None, n_recommendations=10, popularity_filter=None):
-        """Generate recommendations using ISRC region matching"""
-        if not self.is_trained:
-            logger.error("Model not trained")
-            return pd.DataFrame()
-
-        n_recommendations = min(max(n_recommendations, 1), 100)
-        df = self.tracks_df
-
-        # Find seed track
-        if track_name is not None:
-            mask = df['name'].str.lower().str.strip() == track_name.lower().strip()
+    def _find_track_with_fuzzy(self, track_name, artist=None):
+        """Tìm kiếm bài hát với fuzzy matching và trả về độ tin cậy"""
+        if self.tracks_df is None or track_name is None:
+            return None, 0.0
+        
+        try:
+            # Chuẩn hóa tên bài hát và nghệ sĩ
+            track_name_norm = track_name.lower().strip()
+            
+            # Tìm kiếm chính xác
+            mask = self.tracks_df['name'].str.lower().str.strip() == track_name_norm
             if artist:
-                mask = mask & (df['artist'].str.lower().str.strip() == artist.lower().strip())
-            seed_tracks = df[mask]
-        else:
-            seed_tracks = df.sample(1)
+                artist_norm = artist.lower().strip()
+                mask = mask & (self.tracks_df['artist'].str.lower().str.strip() == artist_norm)
+                
+            matches = self.tracks_df[mask]
+            
+            if not matches.empty:
+                # Tìm thấy kết quả chính xác
+                return matches.index[0], 1.0
+            
+            # Tìm kiếm mờ
+            from difflib import SequenceMatcher
+            
+            best_match_idx = None
+            best_match_score = 0.0
+            
+            # Tìm kiếm trong tên bài hát
+            for idx, row in self.tracks_df.iterrows():
+                name_score = SequenceMatcher(None, track_name_norm, row['name'].lower().strip()).ratio()
+                
+                # Nếu có artist, tính điểm cho artist
+                artist_score = 0.0
+                if artist and 'artist' in row:
+                    artist_score = SequenceMatcher(None, artist.lower().strip(), row['artist'].lower().strip()).ratio()
+                    
+                # Tính điểm tổng hợp
+                if artist:
+                    score = (name_score * 0.7) + (artist_score * 0.3)
+                else:
+                    score = name_score
+                
+                if score > best_match_score:
+                    best_match_score = score
+                    best_match_idx = idx
+            
+            # Trả về kết quả tốt nhất nếu điểm đủ cao
+            if best_match_score >= 0.6:
+                return best_match_idx, best_match_score
+            
+            return None, 0.0
+        
+        except Exception as e:
+            logger.error(f"Error in fuzzy search: {e}")
+            return None, 0.0
 
-        if seed_tracks.empty:
-            logger.warning(f"Track not found: '{track_name}' by '{artist}'. Using fallback.")
-            return self._create_fallback_recommendations(track_name, n_recommendations)
-
-        seed = seed_tracks.iloc[0]
-        idx = seed.name
+    def recommend(self, track_name=None, artist=None, n_recommendations=10, popularity_filter=None):
+        """Generate recommendations based on a seed track"""
+        if not self.is_trained:
+            logger.error("Model not trained yet")
+            return pd.DataFrame()
         
-        # ✅ Áp dụng bộ lọc độ phổ biến nếu được chỉ định
-        filtered_df = df.copy()
+        # Đo thời gian thực hiện
+        start_time = time.time()
         
-        # Lấy độ phổ biến của bài hát gốc
-        seed_popularity = seed.get('popularity', 50)
-        
-        # Áp dụng bộ lọc độ phổ biến thông minh
-        if popularity_filter == 'similar':
-            # Chỉ lấy bài hát có độ phổ biến tương tự (±20)
-            pop_min = max(0, seed_popularity - 20)
-            pop_max = min(100, seed_popularity + 20)
-            filtered_df = filtered_df[(filtered_df['popularity'] >= pop_min) & 
-                                     (filtered_df['popularity'] <= pop_max)]
-        elif popularity_filter == 'higher':
-            # Chỉ lấy bài hát có độ phổ biến cao hơn
-            pop_min = seed_popularity
-            filtered_df = filtered_df[filtered_df['popularity'] >= pop_min]
-        elif popularity_filter == 'lower':
-            # Chỉ lấy bài hát có độ phổ biến thấp hơn
-            pop_max = seed_popularity
-            filtered_df = filtered_df[filtered_df['popularity'] <= pop_max]
-        elif popularity_filter == 'top':
-            # Chỉ lấy bài hát phổ biến nhất (top 25%)
-            pop_threshold = df['popularity'].quantile(0.75)
-            filtered_df = filtered_df[filtered_df['popularity'] >= pop_threshold]
-        elif popularity_filter == 'niche':
-            # Chỉ lấy bài hát ít phổ biến (bottom 50%)
-            pop_threshold = df['popularity'].quantile(0.5)
-            filtered_df = filtered_df[filtered_df['popularity'] <= pop_threshold]
-        
-        # Nếu bộ lọc quá nghiêm ngặt và không còn đủ bài hát, quay lại dùng toàn bộ dữ liệu
-        if len(filtered_df) < n_recommendations * 2:
-            logger.warning(f"Popularity filter too restrictive, using full dataset")
-            filtered_df = df.copy()
-
-        # ✅ 1. SAME ARTIST BONUS - Ưu tiên cao nhất
-        same_artist_mask = filtered_df['artist'] == seed['artist']
-        
-        # ✅ 2. REGION SIMILARITY - Ưu tiên cao thứ hai (đơn giản hóa từ ISRC)
-        seed_region = seed.get('region', 'other')
-        same_region_mask = filtered_df['region'] == seed_region
-        
-        # ✅ 3. GENRE SIMILARITY - Ưu tiên tính nhất quán thể loại
-        if self.genre_matrix.shape[1] > 1:
-            # Lấy vector thể loại của bài hát gốc
+        try:
+            # Find the track index
+            idx = self.find_track_idx(track_name, artist)
+            if idx is None:
+                logger.warning(f"Track '{track_name}' by '{artist}' not found")
+                return pd.DataFrame()
+            
+            # Get seed track for reference
+            seed_track = self.tracks_df.iloc[idx].to_dict()
+            
+            # TỐI ƯU: Sử dụng mask thay vì tạo DataFrame mới
+            mask = self.tracks_df.index != idx
+            
+            # Apply popularity filter if specified
+            if popularity_filter:
+                min_pop = popularity_filter.get('min', 0)
+                max_pop = popularity_filter.get('max', 100)
+                if 'popularity' in self.tracks_df.columns:
+                    mask = mask & (self.tracks_df['popularity'] >= min_pop) & (self.tracks_df['popularity'] <= max_pop)
+            
+            # TỐI ƯU: Tính toán genre similarity chỉ cho các track thỏa mãn mask
             seed_genres = self.genre_matrix[idx].reshape(1, -1)
             
-            # Lấy các chỉ số của bài hát trong filtered_df
-            filtered_indices = filtered_df.index.tolist()
+            # TỐI ƯU: Chỉ tính similarity cho các track cần thiết
+            candidate_indices = np.where(mask)[0]
+            candidate_genres = self.genre_matrix[candidate_indices]
+            genre_sim = cosine_similarity(seed_genres, candidate_genres)[0]
             
-            # Tính toán độ tương tự thể loại chỉ cho các bài hát trong filtered_df
-            filtered_genre_matrix = self.genre_matrix[filtered_indices]
-            genre_sim = cosine_similarity(seed_genres, filtered_genre_matrix)[0]
-        else:
-            genre_sim = np.ones(len(filtered_df))
-        
-        # ✅ 4. POPULARITY SIMILARITY
-        if 'popularity' in filtered_df.columns:
-            # Chuẩn hóa độ chênh lệch về độ phổ biến
-            pop_diff = np.abs(filtered_df['popularity'].values - seed_popularity) / 100
-            # Chuyển đổi thành độ tương tự (1 = giống nhau hoàn toàn, 0 = khác nhau hoàn toàn)
-            popularity_sim = 1 - pop_diff
-        else:
-            popularity_sim = np.ones(len(filtered_df)) * 0.5
-        
-        # ✅ 5. OTHER FEATURES
-        track_pop = filtered_df['popularity_norm'].values if 'popularity_norm' in filtered_df.columns else np.ones(len(filtered_df)) * 0.5
-        artist_pop = filtered_df['artist_popularity_norm'].values if 'artist_popularity_norm' in filtered_df.columns else np.ones(len(filtered_df)) * 0.5
-        
-        # Duration similarity
-        if 'duration_norm' in filtered_df.columns and 'duration_norm' in seed:
-            seed_duration = seed['duration_norm']
-            duration_diff = np.abs(filtered_df['duration_norm'].values - seed_duration)
-            duration_sim = np.exp(-2 * duration_diff)
-        else:
-            duration_sim = np.ones(len(filtered_df)) * 0.5
-        
-        # Release recency
-        if 'release_recency' in filtered_df.columns:
-            recency = filtered_df['release_recency'].values
-        else:
-            recency = np.ones(len(filtered_df)) * 0.5  # Default value
-        
-        # ✅ 6. WEIGHTED COMBINATION
-        # Base score without same artist bonus
-        base_score = (
-            self.weights["same_region"] * same_region_mask.astype(float) +
-            self.weights["genre_similarity"] * genre_sim +
-            self.weights["popularity"] * (track_pop * popularity_sim) +
-            self.weights["artist_popularity"] * artist_pop +
-            self.weights["release_recency"] * recency +
-            self.weights["duration_similarity"] * duration_sim
-        )
-        
-        # Add same artist bonus
-        final_score = np.where(same_artist_mask, base_score + self.weights["same_artist"], base_score)
-        
-        # Tạo kết quả
-        df = filtered_df.copy()
-        df['final_score'] = final_score
-        df['same_artist'] = same_artist_mask
-        df['same_region'] = same_region_mask
-        
-        # Loại bỏ bài hát gốc
-        df = df.drop(idx)
-        
-        # Cải thiện: Đa dạng hóa kết quả
-        recommendations = self._diversify_recommendations(
-            df, seed, n_recommendations
-        )
-
-        # ✅ 5. CULTURAL ANALYTICS using actual features
-        seed_culture = seed.get('music_culture', 'other')
-        if 'music_culture' in recommendations.columns:
-            same_culture_count = (recommendations['music_culture'] == seed_culture).sum()
-            logger.info(f"Cultural recommendation for '{seed['name']}' ({seed_culture}):")
-            logger.info(f"  Same culture: {same_culture_count}/{len(recommendations)} ({same_culture_count/len(recommendations)*100:.1f}%)")
-
-        # Return clean result
-        result_cols = ['name', 'artist', 'final_score']
-        if 'music_culture' in recommendations.columns:
-            result_cols.append('music_culture')
-        
-        meta_cols = ['popularity', 'release_year', 'cultural_similarity']
-        for col in meta_cols:
-            if col in recommendations.columns:
-                result_cols.append(col)
-
-        available_cols = [col for col in result_cols if col in recommendations.columns]
-        result = recommendations[available_cols].copy()
-        
-        # Round scores
-        if 'final_score' in result.columns:
-            result['final_score'] = result['final_score'].round(3)
-        if 'cultural_similarity' in result.columns:
-            result['cultural_similarity'] = result['cultural_similarity'].round(3)
-        
-        return result
-
-    def _calculate_cultural_similarity(self, seed, candidates_df):
-        """Calculate cultural similarity using actual data processor features"""
-        
-        # ✅ Use actual feature: music_culture
-        seed_culture = seed.get('music_culture', 'other')
-        
-        cultural_scores = []
-        
-        for _, candidate in candidates_df.iterrows():
-            candidate_culture = candidate.get('music_culture', 'other')
+            # TỐI ƯU: Tạo DataFrame chỉ với các cột cần thiết
+            candidates_df = pd.DataFrame({
+                'index': candidate_indices,
+                'genre_similarity': genre_sim
+            })
             
-            # 1. Perfect cultural match
-            if seed_culture == candidate_culture and seed_culture != 'other':
-                base_score = 1.0
+            # TỐI ƯU: Thêm các cột cần thiết từ tracks_df
+            for col in ['artist', 'music_culture', 'is_major_label', 'market_penetration', 'kmeans_cluster', 'hdbscan_cluster']:
+                if col in self.tracks_df.columns:
+                    candidates_df[col] = self.tracks_df.iloc[candidate_indices][col].values
             
-            # 2. Cross-cultural similarity
-            elif seed_culture != 'other' and candidate_culture != 'other':
-                # Vietnamese <-> Asian cross-similarity
-                if (seed_culture == 'vietnamese' and candidate_culture in ['korean', 'japanese', 'chinese']) or \
-                   (candidate_culture == 'vietnamese' and seed_culture in ['korean', 'japanese', 'chinese']):
-                    base_score = 0.4
+            # TỐI ƯU: Tính cultural similarity với vectorization
+            if 'music_culture' in candidates_df.columns and 'music_culture' in seed_track:
+                seed_culture = seed_track.get('music_culture', 'other')
+                candidates_df['same_culture'] = (candidates_df['music_culture'] == seed_culture).astype(float)
                 
-                # East Asian cross-similarity
-                elif seed_culture in ['korean', 'japanese', 'chinese'] and \
-                     candidate_culture in ['korean', 'japanese', 'chinese']:
-                    base_score = 0.6
-                
-                # Western-Spanish similarity  
-                elif (seed_culture == 'western' and candidate_culture == 'spanish') or \
-                     (seed_culture == 'spanish' and candidate_culture == 'western'):
-                    base_score = 0.3
-                
-                # Different cultures
-                else:
-                    base_score = 0.2
-            
-            # 3. Unknown culture
+                # Áp dụng trọng số văn hóa
+                candidates_df['same_culture'] = candidates_df['same_culture'] * self.weights.get('same_country', 0.2)
             else:
-                base_score = 0.3
+                candidates_df['same_culture'] = 0.0
             
-            # ✅ 4. BONUS from actual features
-            bonus = 0.0
+            # TỐI ƯU: Tính same_artist với vectorization
+            if 'artist' in candidates_df.columns and 'artist' in seed_track:
+                candidates_df['same_artist'] = (candidates_df['artist'] == seed_track.get('artist', '')).astype(float)
+                candidates_df['same_artist'] = candidates_df['same_artist'] * self.weights.get('same_artist', 0.3)
+            else:
+                candidates_df['same_artist'] = 0.0
             
-            # Major label consistency bonus
-            if 'is_major_label' in seed and 'is_major_label' in candidate:
-                if seed.get('is_major_label', 0) == candidate.get('is_major_label', 0):
-                    bonus += 0.1
+            # TỐI ƯU: Tính final_score trực tiếp
+            candidates_df['genre_similarity_weighted'] = candidates_df['genre_similarity'] * self.weights.get('genre_similarity', 0.25)
             
-            # Market penetration bonus
-            if 'market_penetration' in seed and 'market_penetration' in candidate:
-                seed_market = seed.get('market_penetration', 0.5)
-                cand_market = candidate.get('market_penetration', 0.5)
-                market_sim = 1.0 - abs(seed_market - cand_market)
-                bonus += market_sim * 0.1
+            # Tính điểm cuối cùng
+            candidates_df['final_score'] = (
+                candidates_df['genre_similarity_weighted'] + 
+                candidates_df['same_culture'] + 
+                candidates_df['same_artist']
+            )
             
-            final_score = min(1.0, base_score + bonus)
-            cultural_scores.append(final_score)
+            # TỐI ƯU: Sắp xếp và lấy top N
+            top_candidates = candidates_df.sort_values('final_score', ascending=False).head(n_recommendations * 2)
+            
+            # TỐI ƯU: Đa dạng hóa kết quả với phương pháp đơn giản hơn
+            result = self._fast_diversify(top_candidates, seed_track, n_recommendations)
+            
+            # Lấy thông tin đầy đủ cho các track được chọn
+            result_indices = result['index'].values
+            final_result = self.tracks_df.loc[result_indices].copy()
+            
+            # Thêm điểm final_score
+            final_result['final_score'] = result['final_score'].values
+            final_result['enhanced_score'] = result['final_score'].values
+            
+            # Ghi log thời gian thực hiện
+            elapsed = time.time() - start_time
+            logger.info(f"WeightedContentRecommender recommendation completed in {elapsed:.3f} seconds")
+            
+            # Ghi log thông tin văn hóa
+            if 'music_culture' in final_result.columns:
+                seed_culture = seed_track.get('music_culture', 'unknown')
+                same_culture_count = (final_result['music_culture'] == seed_culture).sum()
+                logger.info(f"Cultural recommendation for '{track_name}' ({seed_culture}):")
+                logger.info(f"  Same culture: {same_culture_count}/{len(final_result)} ({same_culture_count/len(final_result)*100:.1f}%)")
+            
+            return final_result
+        except Exception as e:
+            logger.error(f"Error generating recommendations: {e}")
+            return pd.DataFrame()
+
+    def _fast_diversify(self, candidates_df, seed_track, n_recommendations):
+        """Phương pháp đa dạng hóa nhanh hơn"""
+        # Nếu không đủ bài hát, trả về tất cả
+        if len(candidates_df) <= n_recommendations:
+            return candidates_df
         
-        return np.array(cultural_scores)
+        # Lấy thông tin seed
+        seed_artist = seed_track.get('artist', '')
+        seed_culture = seed_track.get('music_culture', 'unknown')
+        seed_cluster = seed_track.get('kmeans_cluster', -1)
+        
+        # Số lượng bài hát tối đa từ cùng nghệ sĩ
+        max_same_artist = min(self.diversity_config.get("max_same_artist", 3), n_recommendations // 3)
+        
+        # Số lượng bài hát tối đa từ cùng văn hóa
+        same_culture_ratio = self.diversity_config.get("country_ratio", 0.6)
+        max_same_culture = int(n_recommendations * same_culture_ratio)
+        
+        # Sắp xếp theo điểm
+        sorted_df = candidates_df.sort_values('final_score', ascending=False)
+        
+        # Khởi tạo bộ đếm
+        artist_counts = {}
+        culture_counts = {'same': 0, 'other': 0}
+        cluster_counts = {'same': 0, 'other': 0}
+        
+        # Danh sách kết quả
+        result = []
+        
+        # Duyệt qua các bài hát đã sắp xếp
+        for _, track in sorted_df.iterrows():
+            artist = track.get('artist', '')
+            culture = track.get('music_culture', 'unknown')
+            cluster = track.get('kmeans_cluster', -1)
+            
+            # Kiểm tra giới hạn nghệ sĩ
+            artist_counts[artist] = artist_counts.get(artist, 0)
+            if artist == seed_artist and artist_counts[artist] >= max_same_artist:
+                continue
+            
+            # Kiểm tra giới hạn văn hóa
+            if culture == seed_culture:
+                if culture_counts['same'] >= max_same_culture:
+                    continue
+                culture_counts['same'] += 1
+            else:
+                if culture_counts['other'] >= (n_recommendations - max_same_culture):
+                    continue
+                culture_counts['other'] += 1
+            
+            # Kiểm tra giới hạn cluster
+            if cluster == seed_cluster:
+                if cluster_counts['same'] >= (n_recommendations // 2):
+                    continue
+                cluster_counts['same'] += 1
+            else:
+                if cluster_counts['other'] >= (n_recommendations // 2):
+                    continue
+                cluster_counts['other'] += 1
+            
+            # Thêm vào kết quả
+            result.append(track)
+            artist_counts[artist] += 1
+            
+            # Kiểm tra đủ số lượng
+            if len(result) >= n_recommendations:
+                break
+        
+        # Nếu chưa đủ, thêm các bài hát còn lại
+        if len(result) < n_recommendations:
+            remaining = sorted_df[~sorted_df.index.isin([r.name for r in result])]
+            for _, track in remaining.iterrows():
+                result.append(track)
+                if len(result) >= n_recommendations:
+                    break
+        
+        return pd.DataFrame(result)
 
     def save(self, filepath):
         """Save model to file"""
@@ -419,65 +442,125 @@ class WeightedContentRecommender(BaseRecommender):
             return None
 
     def _diversify_recommendations(self, candidates_df, seed_track, n_recommendations):
-        """Đa dạng hóa kết quả đề xuất"""
+        """Diversify recommendations using pre-computed clusters"""
+        # Nếu không đủ bài hát, trả về tất cả
+        if len(candidates_df) <= n_recommendations:
+            return candidates_df
+        
+        # Sắp xếp theo điểm số
         sorted_df = candidates_df.sort_values('final_score', ascending=False)
         
-        # ✅ SỬA: Sử dụng music_culture thay vì language
-        seed_culture = seed_track.get('music_culture', 'other')
+        # Kiểm tra xem có cột HDBSCAN không
+        has_hdbscan = 'hdbscan_cluster' in sorted_df.columns
+        has_culture = 'music_culture' in sorted_df.columns and 'music_culture' in seed_track
+        
+        # Nếu không có clustering hoặc thông tin văn hóa, trả về top N
+        if not has_hdbscan and not has_culture:
+            return sorted_df.head(n_recommendations)
+        
+        # Lấy thông tin seed
         seed_artist = seed_track.get('artist', '')
         
-        # ✅ SỬA: Sử dụng country_ratio
-        same_culture_count = int(n_recommendations * self.diversity_config["country_ratio"])
-        other_culture_count = n_recommendations - same_culture_count
-        
-        # ✅ SỬA: Filter by music_culture
-        same_culture = sorted_df[sorted_df.get('music_culture', 'other') == seed_culture]
-        other_culture = sorted_df[sorted_df.get('music_culture', 'other') != seed_culture]
-        
-        # Giới hạn số bài hát từ cùng nghệ sĩ
+        # Khởi tạo danh sách kết quả
+        final_recommendations = []
         artist_counts = {}
         
-        final_recommendations = []
-        
-        # Thêm bài hát cùng văn hóa
-        for _, track in same_culture.iterrows():
-            artist = track['artist']
-            artist_counts[artist] = artist_counts.get(artist, 0) + 1
+        # Sử dụng thông tin văn hóa nếu có
+        if has_culture:
+            seed_culture = seed_track.get('music_culture', 'unknown')
             
-            # Kiểm tra giới hạn cùng nghệ sĩ
-            if artist == seed_artist and artist_counts[artist] > self.diversity_config["max_same_artist"]:
-                continue
+            # Tỷ lệ bài hát cùng văn hóa
+            same_culture_ratio = min(0.7, max(0.3, self.diversity_config.get("country_ratio", 0.6)))
+            same_culture_count = int(n_recommendations * same_culture_ratio)
+            
+            # Lọc bài hát theo văn hóa
+            same_culture = sorted_df[sorted_df['music_culture'] == seed_culture]
+            other_culture = sorted_df[sorted_df['music_culture'] != seed_culture]
+            
+            # Thêm bài hát cùng văn hóa
+            for _, track in same_culture.iterrows():
+                artist = track['artist']
+                artist_counts[artist] = artist_counts.get(artist, 0) + 1
                 
-            final_recommendations.append(track)
-            if len(final_recommendations) >= same_culture_count:
-                break
-        
-        # Thêm bài hát khác văn hóa
-        for _, track in other_culture.iterrows():
-            artist = track['artist']
-            artist_counts[artist] = artist_counts.get(artist, 0) + 1
-            
-            # Kiểm tra giới hạn cùng nghệ sĩ
-            if artist == seed_artist and artist_counts[artist] > self.diversity_config["max_same_artist"]:
-                continue
+                # Giới hạn số bài hát từ cùng nghệ sĩ
+                if artist == seed_artist and artist_counts[artist] > self.diversity_config.get("max_same_artist", 2):
+                    continue
                 
-            final_recommendations.append(track)
-            if len(final_recommendations) >= n_recommendations:
-                break
-        
-        # Nếu không đủ bài hát, lấy thêm từ danh sách đã sắp xếp
-        if len(final_recommendations) < n_recommendations:
-            remaining = n_recommendations - len(final_recommendations)
+                final_recommendations.append(track)
+                if len(final_recommendations) >= same_culture_count:
+                    break
             
-            # Lấy các bài hát chưa được chọn
-            remaining_tracks = sorted_df[~sorted_df.index.isin([r.name for r in final_recommendations])]
-            
-            for _, track in remaining_tracks.iterrows():
+            # Thêm bài hát từ văn hóa khác
+            for _, track in other_culture.iterrows():
+                artist = track['artist']
+                artist_counts[artist] = artist_counts.get(artist, 0) + 1
+                
+                # Giới hạn số bài hát từ cùng nghệ sĩ
+                if artist == seed_artist and artist_counts[artist] > self.diversity_config.get("max_same_artist", 2):
+                    continue
+                
                 final_recommendations.append(track)
                 if len(final_recommendations) >= n_recommendations:
                     break
         
-        return pd.DataFrame(final_recommendations)
+        # Sử dụng HDBSCAN clusters nếu có và chưa đủ bài hát
+        elif has_hdbscan:
+            seed_cluster = seed_track.get('hdbscan_cluster', -1)
+            
+            # Lấy danh sách các cluster (bỏ qua noise points nếu có nhiều cluster)
+            clusters = sorted_df['hdbscan_cluster'].unique()
+            if len(clusters) > 2 and -1 in clusters:
+                clusters = [c for c in clusters if c != -1]
+            
+            # Thêm bài hát từ cùng cluster
+            same_cluster = sorted_df[sorted_df['hdbscan_cluster'] == seed_cluster]
+            for _, track in same_cluster.iterrows():
+                artist = track['artist']
+                artist_counts[artist] = artist_counts.get(artist, 0) + 1
+                
+                if artist == seed_artist and artist_counts[artist] > self.diversity_config.get("max_same_artist", 2):
+                    continue
+                
+                final_recommendations.append(track)
+                if len(final_recommendations) >= n_recommendations // 2:
+                    break
+            
+            # Thêm bài hát từ các cluster khác
+            for cluster in clusters:
+                if cluster == seed_cluster:
+                    continue
+                
+                cluster_tracks = sorted_df[sorted_df['hdbscan_cluster'] == cluster]
+                for _, track in cluster_tracks.iterrows():
+                    artist = track['artist']
+                    artist_counts[artist] = artist_counts.get(artist, 0) + 1
+                    
+                    if artist == seed_artist and artist_counts[artist] > self.diversity_config.get("max_same_artist", 2):
+                        continue
+                    
+                    final_recommendations.append(track)
+                    if len(final_recommendations) >= n_recommendations:
+                        break
+                
+                if len(final_recommendations) >= n_recommendations:
+                    break
+        
+        # Nếu vẫn chưa đủ, thêm các bài hát còn lại
+        if len(final_recommendations) < n_recommendations:
+            remaining = sorted_df[~sorted_df.index.isin([r.name for r in final_recommendations])]
+            for _, track in remaining.iterrows():
+                final_recommendations.append(track)
+                if len(final_recommendations) >= n_recommendations:
+                    break
+        
+        # Chuyển đổi danh sách thành DataFrame
+        result_df = pd.DataFrame(final_recommendations)
+        
+        # Sắp xếp lại theo điểm số
+        if not result_df.empty:
+            result_df = result_df.sort_values('final_score', ascending=False)
+        
+        return result_df.head(n_recommendations)
 
 
 # ✅ ALIAS for backward compatibility
